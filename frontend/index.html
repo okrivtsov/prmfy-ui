@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" data-mantine-color-scheme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Permify UI</title>
+    <script data-mantine-script>
+      try {
+        var _colorScheme = window.localStorage.getItem('permify-ui-color-scheme');
+        var colorScheme = _colorScheme === 'dark' ? 'dark' : 'light';
+        window.localStorage.setItem('permify-ui-color-scheme', colorScheme);
+        document.documentElement.setAttribute('data-mantine-color-scheme', colorScheme);
+      } catch (e) {}
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

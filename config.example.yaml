@@ -1,0 +1,29 @@
+permify_url: http://localhost:3476
+permify_token: ""
+permify_tenant: t1
+
+api_access:
+  allowed_endpoints:
+    - method: POST
+      path: /v1/tenants/{tenant}/schemas/list
+    - method: POST
+      path: /v1/tenants/{tenant}/schemas/read
+    - method: POST
+      path: /v1/tenants/{tenant}/data/relationships/read
+    - method: POST
+      path: /v1/tenants/{tenant}/permissions/check
+    - method: POST
+      path: /v1/tenants/{tenant}/permissions/lookup-entity
+    - method: POST
+      path: /v1/tenants/{tenant}/permissions/lookup-subject
+
+auth:
+  enabled: false
+  oidc:
+    issuer: https://accounts.google.com
+    name: Google
+    client_id: YOUR_CLIENT_ID
+    client_secret: YOUR_CLIENT_SECRET
+    redirect_url: http://localhost:8080/auth/callback
+  allowed_users:
+    - you@example.com

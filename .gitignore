@@ -1,0 +1,18 @@
+# Build outputs
+/dist
+*.out
+
+# Go binaries
+/permify-gui
+/gui
+
+# Frontend
+/frontend/node_modules
+/frontend/.vite
+
+# Secrets
+config.yaml
+
+# Misc
+.DS_Store
+*.pem
