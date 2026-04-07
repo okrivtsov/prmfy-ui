@@ -526,7 +526,7 @@ function SchemaDiffView({ blocks, emptyLabel }: { blocks: SchemaDiffBlock[]; emp
   }
 
   return (
-    <Stack gap="sm">
+    <Stack gap="xl">
       {blocks.map((block) => {
         const titleColor =
           block.kind === 'added'
@@ -536,33 +536,49 @@ function SchemaDiffView({ blocks, emptyLabel }: { blocks: SchemaDiffBlock[]; emp
               : 'var(--mantine-color-text)'
 
         return (
-          <Card key={block.key} withBorder p="md">
-            <Stack gap="xs">
-              <Text ff="monospace" size="sm" fw={500} style={{ color: titleColor, overflowWrap: 'anywhere' }}>
-                {block.title}
-              </Text>
-              <Box pl="sm">
-                <Stack gap={4}>
-                  {block.lines.map((line, index) => (
-                    <Text
-                      key={`${block.key}:${index}`}
-                      ff="monospace"
-                      size="sm"
-                      style={{
-                        color: line.kind === 'added' ? 'var(--schema-diff-added)' : 'var(--schema-diff-removed)',
-                        overflowWrap: 'anywhere',
-                      }}
-                    >
-                      {line.kind === 'added' ? '+' : '-'} {line.text}
-                    </Text>
-                  ))}
-                </Stack>
-              </Box>
-            </Stack>
-          </Card>
+          <Stack key={block.key} gap="xs">
+            <Text
+              ff="monospace"
+              fw={400}
+              style={{
+                color: titleColor,
+                overflowWrap: 'anywhere',
+                fontSize: '13px',
+                lineHeight: 1.68,
+              }}
+            >
+              {block.title}
+            </Text>
+            <Box pl="sm">
+              <Stack gap={4}>
+                {block.lines.map((line, index) => (
+                  <Text
+                    key={`${block.key}:${index}`}
+                    ff="monospace"
+                    style={{
+                      color: line.kind === 'added' ? 'var(--schema-diff-added)' : 'var(--schema-diff-removed)',
+                      overflowWrap: 'anywhere',
+                      fontSize: '13px',
+                      lineHeight: 1.68,
+                    }}
+                  >
+                    {line.kind === 'added' ? '+' : '-'} {line.text}
+                  </Text>
+                ))}
+              </Stack>
+            </Box>
+          </Stack>
         )
       })}
     </Stack>
+  )
+}
+
+function SchemaContentInset({ children }: { children: ReactNode }) {
+  return (
+    <Box px={{ base: 0, sm: 'md' }}>
+      {children}
+    </Box>
   )
 }
 
@@ -789,7 +805,17 @@ function SchemaScreen({ api }: { api: ApiClient }) {
 
         {compareError && <ApiErrorAlert error={compareError} />}
 
-        {schemaLoading || compareLoading ? <Loader mt="md" /> : compareBlocks ? <SchemaDiffView blocks={compareBlocks} emptyLabel="No changes relative to previous." /> : <SchemaHighlight code={generateSchemaText(entities)} />}
+        {schemaLoading || compareLoading ? (
+          <Loader mt="md" />
+        ) : compareBlocks ? (
+          <SchemaContentInset>
+            <SchemaDiffView blocks={compareBlocks} emptyLabel="No changes relative to previous." />
+          </SchemaContentInset>
+        ) : (
+          <SchemaContentInset>
+            <SchemaHighlight code={generateSchemaText(entities)} />
+          </SchemaContentInset>
+        )}
       </Stack>
     </Box>
   )
