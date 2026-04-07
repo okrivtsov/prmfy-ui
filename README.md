@@ -1,6 +1,6 @@
 # prmfy-ui
 
-`prmfy-ui` is a lightweight web UI for Permify.
+prmfy-ui is a lightweight web UI for [Permify](https://github.com/permify/permify).
 
 It helps you inspect schema versions, explore relationships, and run access checks without exposing the Permify token directly to the browser.
 
@@ -30,7 +30,7 @@ Permify is API-first. That is great for integrations, but it is not ideal when y
 
 Without a UI, that workflow usually turns into raw API calls, curl commands, or Postman requests.
 
-`prmfy-ui` provides a lightweight interface on top of Permify while keeping sensitive configuration on the server side.
+prmfy-ui provides a lightweight interface on top of Permify while keeping sensitive configuration on the server side.
 
 ## Architecture
 
@@ -144,14 +144,14 @@ go run .
 
 ## License
 
-This project is distributed under the `prmfy-ui Non-Commercial License 1.0`.
+This project is distributed under the prmfy-ui Non-Commercial License 1.0.
 
 - Personal use is allowed
 - Internal company use is allowed
 - Modification is allowed
 - Commercial resale and paid hosted use are not allowed without prior written permission
 
-Commercial licensing requests: `okrivtsov@gmail.com`
+Commercial licensing requests: okrivtsov@gmail.com
 
 This is a source-available license, not a standard open source license.
 
