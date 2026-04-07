@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { IconArrowsExchange, IconBraces, IconChevronDown, IconLayersDifference, IconLockCheck, IconLogout, IconMoon, IconServerOff, IconSun } from '@tabler/icons-react'
 import { ActionIcon, Alert, AppShell, Badge, Box, Burger, Button, Card, Code, Combobox, Container, Grid, Group, InputBase, Loader, NavLink, Pill, ScrollArea, Select, Stack, Table, Tabs, Text, TextInput, Title, Tooltip, UnstyledButton, useCombobox, useMantineColorScheme } from '@mantine/core'
+import { useMediaQuery } from '@mantine/hooks'
 
 type Page = 'schema' | 'relations' | 'check'
 
@@ -852,6 +853,7 @@ function FilterInput({
 }
 
 function TuplesScreen({ api }: { api: ApiClient }) {
+  const isNarrowViewport = useMediaQuery('(max-width: 48em)')
   const [filters, setFilters] = useState<RelationshipsFilterState>(EMPTY_FILTERS)
   const [tuples, setTuples] = useState<TupleRecord[]>([])
   const [continuousToken, setContinuousToken] = useState('')
@@ -946,6 +948,39 @@ function TuplesScreen({ api }: { api: ApiClient }) {
     setFiltersExpanded(true)
   }
 
+  const tuplesTable = (
+    <Table verticalSpacing="xs" horizontalSpacing="sm" stickyHeader>
+      <Table.Thead>
+        <Table.Tr>
+          <Table.Th>Entity Type</Table.Th>
+          <Table.Th>Entity ID</Table.Th>
+          <Table.Th>Relation</Table.Th>
+          <Table.Th>Subject Type</Table.Th>
+          <Table.Th>Subject ID</Table.Th>
+          <Table.Th>Subject Relation</Table.Th>
+        </Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
+        {tuples.length === 0 ? (
+          <Table.Tr>
+            <Table.Td colSpan={6} ta="center" py="xl">
+              <Text c="dimmed">No records</Text>
+            </Table.Td>
+          </Table.Tr>
+        ) : tuples.map((tuple) => (
+          <Table.Tr key={`${tuple.entity.type}:${tuple.entity.id}:${tuple.relation}:${tuple.subject.type}:${tuple.subject.id}:${tuple.subject.relation}`}>
+            <Table.Td><Text size="sm">{tuple.entity.type}</Text></Table.Td>
+            <Table.Td><Text ff="monospace" size="sm">{tuple.entity.id}</Text></Table.Td>
+            <Table.Td><Text ff="monospace" size="sm">{tuple.relation}</Text></Table.Td>
+            <Table.Td><Text size="sm">{tuple.subject.type}</Text></Table.Td>
+            <Table.Td><Text ff="monospace" size="sm">{tuple.subject.id}</Text></Table.Td>
+            <Table.Td><Text size="sm" c="dimmed">{tuple.subject.relation || '—'}</Text></Table.Td>
+          </Table.Tr>
+        ))}
+      </Table.Tbody>
+    </Table>
+  )
+
   return (
     <Box maw={1120} px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
       <Stack gap={loaded && !filtersExpanded ? 'lg' : 'xl'}>
@@ -1013,38 +1048,13 @@ function TuplesScreen({ api }: { api: ApiClient }) {
 
         {loaded && (
           <Stack gap="md">
-            <Table.ScrollContainer minWidth={900} type="native">
-              <Table verticalSpacing="xs" horizontalSpacing="sm" stickyHeader>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Entity Type</Table.Th>
-                    <Table.Th>Entity ID</Table.Th>
-                    <Table.Th>Relation</Table.Th>
-                    <Table.Th>Subject Type</Table.Th>
-                    <Table.Th>Subject ID</Table.Th>
-                    <Table.Th>Subject Relation</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {tuples.length === 0 ? (
-                    <Table.Tr>
-                      <Table.Td colSpan={6} ta="center" py="xl">
-                        <Text c="dimmed">No records</Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  ) : tuples.map((tuple) => (
-                    <Table.Tr key={`${tuple.entity.type}:${tuple.entity.id}:${tuple.relation}:${tuple.subject.type}:${tuple.subject.id}:${tuple.subject.relation}`}>
-                      <Table.Td><Text size="sm">{tuple.entity.type}</Text></Table.Td>
-                      <Table.Td><Text ff="monospace" size="sm">{tuple.entity.id}</Text></Table.Td>
-                      <Table.Td><Text ff="monospace" size="sm">{tuple.relation}</Text></Table.Td>
-                      <Table.Td><Text size="sm">{tuple.subject.type}</Text></Table.Td>
-                      <Table.Td><Text ff="monospace" size="sm">{tuple.subject.id}</Text></Table.Td>
-                      <Table.Td><Text size="sm" c="dimmed">{tuple.subject.relation || '—'}</Text></Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
+            {isNarrowViewport ? (
+              <Table.ScrollContainer minWidth={900} type="native">
+                {tuplesTable}
+              </Table.ScrollContainer>
+            ) : (
+              tuplesTable
+            )}
             {continuousToken && (
               <Group justify="flex-end">
                 <Button variant="default" onClick={loadMore} loading={loadingMore}>Load more</Button>
