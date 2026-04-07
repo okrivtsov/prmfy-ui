@@ -386,7 +386,15 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setAuthCookie(w, r, oauthStateCookie, stateStr, oauthStateTTL)
-	http.Redirect(w, r, s.oauth2Config.AuthCodeURL(stateStr), http.StatusFound)
+	http.Redirect(
+		w,
+		r,
+		s.oauth2Config.AuthCodeURL(
+			stateStr,
+			oauth2.SetAuthURLParam("prompt", "select_account"),
+		),
+		http.StatusFound,
+	)
 }
 
 func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
