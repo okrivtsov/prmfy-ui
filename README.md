@@ -42,9 +42,15 @@ prmfy-ui provides a lightweight interface on top of Permify while keeping sensit
 
 ## Requirements
 
+Build-time requirements:
+
 - Go 1.26+
 - Node.js 20+ and npm
+
+Runtime requirements:
+
 - A reachable Permify instance
+- A `config.yaml` file for the environment where the binary runs
 
 ## Screenshots
 
@@ -64,7 +70,9 @@ Shown above:
 - Relationship explorer
 - Access check
 
-## Quick Start
+## Local Run From Source
+
+Use this flow when you are developing locally from the repository.
 
 1. Create a local config:
 
@@ -81,7 +89,7 @@ cd frontend
 npm install
 ```
 
-4. Build the frontend:
+4. Build the frontend bundle:
 
 ```bash
 cd frontend
@@ -96,9 +104,96 @@ go run .
 
 6. Open [http://localhost:8080](http://localhost:8080)
 
+The local source-based run expects `config.yaml` in the current working directory unless you pass a different path as the first argument:
+
+```bash
+go run . /absolute/path/to/config.yaml
+```
+
+## Build A Binary
+
+Use this flow when you want to distribute a standalone binary to another machine.
+
+1. Build the frontend bundle:
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+2. Build the Go binary from the repository root:
+
+```bash
+mkdir -p build
+CGO_ENABLED=0 go build -o build/prmfy-ui .
+```
+
+Example cross-compile for Ubuntu 24 on `x86_64`:
+
+```bash
+mkdir -p build
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/prmfy-ui-linux-amd64 .
+```
+
+The resulting binary embeds the contents of `dist/`, so the target machine does not need Node.js, npm, Go, or a separate `dist/` directory.
+
+## Deploy In Company Infrastructure
+
+Use this flow when a colleague receives a prebuilt binary and a config file.
+
+1. Copy the binary and config to the target host.
+
+Example layout:
+
+```text
+/usr/local/bin/permify-ui
+/usr/local/etc/config-ui.yaml
+```
+
+2. Start the binary by passing the config path as the first positional argument:
+
+```bash
+/usr/local/bin/permify-ui /usr/local/etc/config-ui.yaml
+```
+
+This binary does not support subcommands or flags such as `serve`, `--config`, or `--log-level`.
+
+3. By default the service listens on `:8080`. In practice it is usually placed behind a reverse proxy, load balancer, or ingress and exposed through a company hostname such as `https://permify-ui.company.example`.
+
+4. Make sure `permify_url` points to the Permify instance reachable from that host. Do not leave it as `http://localhost:3476` unless Permify is running on the same machine.
+
+5. If OIDC is enabled, set `auth.oidc.redirect_url` to the external URL used by users, for example:
+
+```yaml
+auth:
+  enabled: true
+  oidc:
+    redirect_url: https://permify-ui.company.example/auth/callback
+```
+
+6. If OIDC is disabled, restrict network access to the service at the infrastructure layer.
+
+Example `systemd` unit:
+
+```ini
+[Unit]
+Description=Permify-UI
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/permify-ui /usr/local/etc/config-ui.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ## Configuration
 
-The application reads settings from `config.yaml`. Start from `config.example.yaml` and adjust it for your environment.
+The application reads settings from a YAML config file. Start from `config.example.yaml` and adjust it for your environment.
 
 Main options:
 
@@ -120,6 +215,14 @@ api_access:
 ```
 
 `{tenant}` is replaced with the value of `permify_tenant`.
+
+When launching the app from source with `go run .`, the default config path is `./config.yaml`.
+
+When launching a built binary, pass the config path explicitly:
+
+```bash
+./prmfy-ui /path/to/config.yaml
+```
 
 ## Development
 
