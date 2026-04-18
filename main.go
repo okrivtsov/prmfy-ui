@@ -352,6 +352,7 @@ func (s *Server) authRequired(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleAuthConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]any{
+		"enabled":     s.cfg.Auth.Enabled,
 		"provider":    s.cfg.Auth.OIDC.Name,
 		"permify_url": s.cfg.PermifyURL,
 		"tenant":      s.cfg.PermifyTenant,
@@ -398,6 +399,12 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if s.oauth2Config == nil || s.oidcProvider == nil {
+		clearAuthCookie(w, r, oauthStateCookie)
+		http.Error(w, "OIDC not configured", http.StatusInternalServerError)
+		return
+	}
+
 	stateCookie, err := r.Cookie(oauthStateCookie)
 	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
 		http.Error(w, "invalid state", http.StatusBadRequest)
@@ -479,7 +486,18 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
-	req, err := http.NewRequest("GET", s.cfg.PermifyURL, nil)
+	permifyURL, err := url.Parse(s.cfg.PermifyURL)
+	if err != nil {
+		http.Error(w, "invalid permify_url", http.StatusInternalServerError)
+		return
+	}
+
+	permifyURL.Path = strings.TrimRight(permifyURL.Path, "/") + "/healthz"
+	permifyURL.RawPath = ""
+	permifyURL.RawQuery = ""
+	permifyURL.Fragment = ""
+
+	req, err := http.NewRequest("GET", permifyURL.String(), nil)
 	if err != nil {
 		http.Error(w, "cannot build request to Permify", http.StatusInternalServerError)
 		return
@@ -495,6 +513,11 @@ func (s *Server) handlePing(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		http.Error(w, "Permify returned "+resp.Status, http.StatusBadGateway)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 }

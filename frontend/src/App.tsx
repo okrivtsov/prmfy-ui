@@ -50,11 +50,13 @@ interface CheckResult {
 }
 
 interface LookupEntityResult {
-  entity_ids: string[]
+  entityIds: string[]
+  continuousToken: string
 }
 
 interface LookupSubjectResult {
-  subject_ids: string[]
+  subjectIds: string[]
+  continuousToken: string
 }
 
 interface ApiClient {
@@ -82,6 +84,7 @@ interface ApiClient {
     permission: string
     subjectType: string
     subjectId: string
+    continuousToken?: string
   }): Promise<LookupEntityResult>
   lookupSubject(params: {
     entityType: string
@@ -89,6 +92,7 @@ interface ApiClient {
     permission: string
     subjectType: string
     subjectRelation?: string
+    continuousToken?: string
   }): Promise<LookupSubjectResult>
 }
 
@@ -161,7 +165,7 @@ function tenantPath(tenant: string, path: string) {
 }
 
 function getAppConfig() {
-  return getJson<{ provider: string; permify_url: string; tenant: string }>('/auth/config')
+  return getJson<{ enabled: boolean; provider: string; permify_url: string; tenant: string }>('/auth/config')
 }
 
 function getCurrentUser() {
@@ -217,24 +221,26 @@ function createApiClient(tenant: string): ApiClient {
     },
 
     lookupEntity(params) {
-      return postJson<LookupEntityResult>(tenantPath(tenant, '/permissions/lookup-entity'), {
+      return postJson<{ entity_ids?: string[]; continuous_token?: string }>(tenantPath(tenant, '/permissions/lookup-entity'), {
         metadata: { snap_token: '', schema_version: '', depth: 20 },
         entity_type: params.entityType,
         permission: params.permission,
         subject: { type: params.subjectType, id: params.subjectId, relation: '' },
         page_size: 100,
-        continuous_token: '',
+        continuous_token: params.continuousToken ?? '',
       })
+        .then((data) => ({ entityIds: data.entity_ids ?? [], continuousToken: data.continuous_token ?? '' }))
     },
 
     lookupSubject(params) {
-      return postJson<LookupSubjectResult>(tenantPath(tenant, '/permissions/lookup-subject'), {
+      return postJson<{ subject_ids?: string[]; continuous_token?: string }>(tenantPath(tenant, '/permissions/lookup-subject'), {
         metadata: { snap_token: '', schema_version: '', depth: 20 },
         entity: { type: params.entityType, id: params.entityId },
         permission: params.permission,
         subject_reference: { type: params.subjectType, relation: params.subjectRelation ?? '' },
-        continuous_token: '',
+        continuous_token: params.continuousToken ?? '',
       })
+        .then((data) => ({ subjectIds: data.subject_ids ?? [], continuousToken: data.continuous_token ?? '' }))
     },
   }
 }
@@ -642,6 +648,7 @@ function SchemaScreen({ api }: { api: ApiClient }) {
   const [compareError, setCompareError] = useState<Error | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const schemaCacheRef = useRef<Record<string, EntityDef[]>>({})
+  const schemaLoadRequestRef = useRef(0)
   const combobox = useCombobox()
 
   async function readSchema(version: string) {
@@ -656,16 +663,28 @@ function SchemaScreen({ api }: { api: ApiClient }) {
   }
 
   async function loadSchema(version: string) {
+    const requestId = ++schemaLoadRequestRef.current
     setSchemaLoading(true)
     setError(null)
     setCompareBlocks(null)
     setCompareError(null)
     try {
-      setEntities(await readSchema(version))
+      const nextEntities = await readSchema(version)
+      if (requestId !== schemaLoadRequestRef.current) {
+        return
+      }
+
+      setEntities(nextEntities)
     } catch (err: unknown) {
+      if (requestId !== schemaLoadRequestRef.current) {
+        return
+      }
+
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
-      setSchemaLoading(false)
+      if (requestId === schemaLoadRequestRef.current) {
+        setSchemaLoading(false)
+      }
     }
   }
 
@@ -830,6 +849,30 @@ interface RelationshipsFilterState {
   pageSize: string
 }
 
+interface RelationshipsQuery {
+  entityType: string
+  entityIds: string[]
+  relation: string
+  subjectType: string
+  subjectIds: string[]
+  pageSize?: number
+}
+
+interface LookupEntityQuery {
+  entityType: string
+  permission: string
+  subjectType: string
+  subjectId: string
+}
+
+interface LookupSubjectQuery {
+  entityType: string
+  entityId: string
+  permission: string
+  subjectType: string
+  subjectRelation?: string
+}
+
 type ResponsiveGridSpan = number | 'auto' | 'content' | Partial<Record<'base' | 'xs' | 'sm' | 'md' | 'lg' | 'xl', number | 'auto' | 'content'>>
 
 const DEFAULT_RELATIONSHIPS_PAGE_SIZE = '100'
@@ -888,12 +931,13 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   const [error, setError] = useState<Error | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [filtersExpanded, setFiltersExpanded] = useState(true)
+  const [appliedFilter, setAppliedFilter] = useState<RelationshipsQuery | null>(null)
 
   function setFilter<K extends keyof RelationshipsFilterState>(key: K, value: RelationshipsFilterState[K]) {
     setFilters((prev) => ({ ...prev, [key]: value }))
   }
 
-  function normalizedFilter() {
+  function normalizedFilter(): RelationshipsQuery {
     return {
       entityType: filters.entityType.trim(),
       entityIds: filters.entityId.trim() ? [filters.entityId.trim()] : [],
@@ -905,22 +949,22 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   }
 
   const activeFilterItems = [
-    filters.entityType.trim() ? { label: 'Entity Type', value: filters.entityType.trim() } : null,
-    filters.entityId.trim() ? { label: 'Entity ID', value: filters.entityId.trim() } : null,
-    filters.relation.trim() ? { label: 'Relation', value: filters.relation.trim() } : null,
-    filters.subjectType.trim() ? { label: 'Subject Type', value: filters.subjectType.trim() } : null,
-    filters.subjectId.trim() ? { label: 'Subject ID', value: filters.subjectId.trim() } : null,
-    filters.pageSize === 'all'
-      ? { label: 'Page Size', value: 'All records' }
-      : { label: 'Page Size', value: filters.pageSize },
+    appliedFilter?.entityType ? { label: 'Entity Type', value: appliedFilter.entityType } : null,
+    appliedFilter?.entityIds[0] ? { label: 'Entity ID', value: appliedFilter.entityIds[0] } : null,
+    appliedFilter?.relation ? { label: 'Relation', value: appliedFilter.relation } : null,
+    appliedFilter?.subjectType ? { label: 'Subject Type', value: appliedFilter.subjectType } : null,
+    appliedFilter?.subjectIds[0] ? { label: 'Subject ID', value: appliedFilter.subjectIds[0] } : null,
+    appliedFilter
+      ? { label: 'Page Size', value: appliedFilter.pageSize === undefined ? 'All records' : String(appliedFilter.pageSize) }
+      : null,
   ].filter((item): item is { label: string; value: string } => Boolean(item))
 
-  async function readAllRelationships() {
+  async function readAllRelationships(query: RelationshipsQuery) {
     const allTuples: TupleRecord[] = []
     let token = ''
 
     do {
-      const result = await api.readRelationships({ ...normalizedFilter(), continuousToken: token })
+      const result = await api.readRelationships({ ...query, continuousToken: token })
       allTuples.push(...result.tuples)
       token = result.continuousToken
     } while (token)
@@ -929,19 +973,21 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   }
 
   async function fetchTuples() {
+    const query = normalizedFilter()
     setLoading(true)
     setError(null)
 
     try {
-      if (filters.pageSize === 'all') {
-        setTuples(await readAllRelationships())
+      if (query.pageSize === undefined) {
+        setTuples(await readAllRelationships(query))
         setContinuousToken('')
       } else {
-        const result = await api.readRelationships(normalizedFilter())
+        const result = await api.readRelationships(query)
         setTuples(result.tuples)
         setContinuousToken(result.continuousToken)
       }
 
+      setAppliedFilter(query)
       setLoaded(true)
       setFiltersExpanded(false)
     } catch (err: unknown) {
@@ -952,11 +998,15 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   }
 
   async function loadMore() {
+    if (!appliedFilter || !continuousToken) {
+      return
+    }
+
     setLoadingMore(true)
     setError(null)
 
     try {
-      const result = await api.readRelationships({ ...normalizedFilter(), continuousToken })
+      const result = await api.readRelationships({ ...appliedFilter, continuousToken })
       setTuples((prev) => [...prev, ...result.tuples])
       setContinuousToken(result.continuousToken)
     } catch (err: unknown) {
@@ -972,6 +1022,7 @@ function TuplesScreen({ api }: { api: ApiClient }) {
     setContinuousToken('')
     setLoaded(false)
     setFiltersExpanded(true)
+    setAppliedFilter(null)
   }
 
   const tuplesTable = (
@@ -1206,25 +1257,64 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
   const [permission, setPermission] = useState('')
   const [subjectType, setSubjectType] = useState('')
   const [subjectId, setSubjectId] = useState('')
-  const [result, setResult] = useState<LookupEntityResult | null>(null)
+  const [entityIds, setEntityIds] = useState<string[]>([])
+  const [continuousToken, setContinuousToken] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const [validated, setValidated] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const lastQueryRef = useRef<LookupEntityQuery | null>(null)
+
+  function normalizedQuery(): LookupEntityQuery {
+    return {
+      entityType: entityType.trim(),
+      permission: permission.trim(),
+      subjectType: subjectType.trim(),
+      subjectId: subjectId.trim(),
+    }
+  }
 
   async function lookup() {
+    const query = normalizedQuery()
     setValidated(true)
-    if (!entityType.trim() || !permission.trim() || !subjectType.trim() || !subjectId.trim()) return
+    if (!query.entityType || !query.permission || !query.subjectType || !query.subjectId) return
 
     setLoading(true)
     setError(null)
-    setResult(null)
+    setLoaded(false)
+    setEntityIds([])
+    setContinuousToken('')
 
     try {
-      setResult(await api.lookupEntity({ entityType, permission, subjectType, subjectId }))
+      const result = await api.lookupEntity(query)
+      lastQueryRef.current = query
+      setEntityIds(result.entityIds)
+      setContinuousToken(result.continuousToken)
+      setLoaded(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadMore() {
+    if (!lastQueryRef.current || !continuousToken) {
+      return
+    }
+
+    setLoadingMore(true)
+    setError(null)
+
+    try {
+      const result = await api.lookupEntity({ ...lastQueryRef.current, continuousToken })
+      setEntityIds((prev) => [...prev, ...result.entityIds])
+      setContinuousToken(result.continuousToken)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err : new Error('unknown error'))
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -1244,7 +1334,12 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
         </Grid>
       </ActionCard>
       {error && <ApiErrorAlert error={error} />}
-      {result && <BadgeListResult countLabel="entities found" values={result.entity_ids} />}
+      {loaded && <BadgeListResult countLabel="entities found" values={entityIds} />}
+      {continuousToken && (
+        <Group justify="flex-end">
+          <Button variant="default" onClick={loadMore} loading={loadingMore}>Load more</Button>
+        </Group>
+      )}
     </Stack>
   )
 }
@@ -1255,25 +1350,65 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
   const [permission, setPermission] = useState('')
   const [subjectType, setSubjectType] = useState('')
   const [subjectRelation, setSubjectRelation] = useState('')
-  const [result, setResult] = useState<LookupSubjectResult | null>(null)
+  const [subjectIds, setSubjectIds] = useState<string[]>([])
+  const [continuousToken, setContinuousToken] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const [validated, setValidated] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const lastQueryRef = useRef<LookupSubjectQuery | null>(null)
+
+  function normalizedQuery(): LookupSubjectQuery {
+    return {
+      entityType: entityType.trim(),
+      entityId: entityId.trim(),
+      permission: permission.trim(),
+      subjectType: subjectType.trim(),
+      subjectRelation: subjectRelation.trim(),
+    }
+  }
 
   async function lookup() {
+    const query = normalizedQuery()
     setValidated(true)
-    if (!entityType.trim() || !entityId.trim() || !permission.trim() || !subjectType.trim()) return
+    if (!query.entityType || !query.entityId || !query.permission || !query.subjectType) return
 
     setLoading(true)
     setError(null)
-    setResult(null)
+    setLoaded(false)
+    setSubjectIds([])
+    setContinuousToken('')
 
     try {
-      setResult(await api.lookupSubject({ entityType, entityId, permission, subjectType, subjectRelation }))
+      const result = await api.lookupSubject(query)
+      lastQueryRef.current = query
+      setSubjectIds(result.subjectIds)
+      setContinuousToken(result.continuousToken)
+      setLoaded(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadMore() {
+    if (!lastQueryRef.current || !continuousToken) {
+      return
+    }
+
+    setLoadingMore(true)
+    setError(null)
+
+    try {
+      const result = await api.lookupSubject({ ...lastQueryRef.current, continuousToken })
+      setSubjectIds((prev) => [...prev, ...result.subjectIds])
+      setContinuousToken(result.continuousToken)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err : new Error('unknown error'))
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -1294,7 +1429,12 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
         </Grid>
       </ActionCard>
       {error && <ApiErrorAlert error={error} />}
-      {result && <BadgeListResult countLabel="subjects found" values={result.subject_ids} />}
+      {loaded && <BadgeListResult countLabel="subjects found" values={subjectIds} />}
+      {continuousToken && (
+        <Group justify="flex-end">
+          <Button variant="default" onClick={loadMore} loading={loadingMore}>Load more</Button>
+        </Group>
+      )}
     </Stack>
   )
 }
@@ -1355,6 +1495,7 @@ export function App() {
   const [page, setPage] = useState<Page>(() => parsePage(new URLSearchParams(window.location.search).get('page')))
   const [schemaScreenKey, setSchemaScreenKey] = useState(0)
   const [mobileNavbarOpened, setMobileNavbarOpened] = useState(false)
+  const [authEnabled, setAuthEnabled] = useState(false)
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [connected, setConnected] = useState<boolean | null>(null)
   const [configReady, setConfigReady] = useState(false)
@@ -1377,6 +1518,7 @@ export function App() {
   useEffect(() => {
     getAppConfig()
       .then((data) => {
+        setAuthEnabled(data.enabled)
         setProvider(data.provider)
         setPermifyUrl(data.permify_url)
         setTenant(data.tenant)
@@ -1415,7 +1557,7 @@ export function App() {
   }
 
   if (authed === null || connected === null || !configReady) return <Loader m="xl" />
-  if (!authed) return <LoginScreen provider={provider} />
+  if (authEnabled && !authed) return <LoginScreen provider={provider} />
   if (!connected || !tenant) return <ConnectionScreen permifyUrl={permifyUrl} onRetry={checkConnection} />
 
   return (
@@ -1470,20 +1612,22 @@ export function App() {
           ))}
         </AppShell.Section>
 
-        <AppShell.Section px="lg" py="md" mt="md">
-          <Group gap="xs" wrap="nowrap">
-            <Text size="xs" c="dimmed" truncate="end" flex={1}>
-              {email}
-            </Text>
-            <Tooltip label="Logout" position="top">
-              <Box component="form" action="/auth/logout" method="post">
-                <ActionIcon type="submit" variant="subtle" color="gray" size="sm" aria-label="Logout">
-                  <IconLogout size={16} />
-                </ActionIcon>
-              </Box>
-            </Tooltip>
-          </Group>
-        </AppShell.Section>
+        {authEnabled && (
+          <AppShell.Section px="lg" py="md" mt="md">
+            <Group gap="xs" wrap="nowrap">
+              <Text size="xs" c="dimmed" truncate="end" flex={1}>
+                {email}
+              </Text>
+              <Tooltip label="Logout" position="top">
+                <Box component="form" action="/auth/logout" method="post">
+                  <ActionIcon type="submit" variant="subtle" color="gray" size="sm" aria-label="Logout">
+                    <IconLogout size={16} />
+                  </ActionIcon>
+                </Box>
+              </Tooltip>
+            </Group>
+          </AppShell.Section>
+        )}
       </AppShell.Navbar>
 
       <AppShell.Main>
