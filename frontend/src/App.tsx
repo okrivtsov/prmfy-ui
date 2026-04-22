@@ -63,6 +63,7 @@ interface ApiClient {
   listSchemas(): Promise<{ head: string; schemas: SchemaVersion[] }>
   readSchema(version: string): Promise<EntityDef[]>
   readRelationships(filter: {
+    snapToken: string
     entityType: string
     entityIds: string[]
     relation: string
@@ -78,12 +79,14 @@ interface ApiClient {
     subjectType: string
     subjectId: string
     subjectRelation?: string
+    snapToken: string
   }): Promise<CheckResult>
   lookupEntity(params: {
     entityType: string
     permission: string
     subjectType: string
     subjectId: string
+    snapToken: string
     continuousToken?: string
   }): Promise<LookupEntityResult>
   lookupSubject(params: {
@@ -92,6 +95,7 @@ interface ApiClient {
     permission: string
     subjectType: string
     subjectRelation?: string
+    snapToken: string
     continuousToken?: string
   }): Promise<LookupSubjectResult>
 }
@@ -196,7 +200,7 @@ function createApiClient(tenant: string): ApiClient {
 
     async readRelationships(filter) {
       const body: Record<string, unknown> = {
-        metadata: { snap_token: '' },
+        metadata: { snap_token: filter.snapToken },
         filter: {
           entity: { type: filter.entityType, ids: filter.entityIds },
           relation: filter.relation,
@@ -213,7 +217,7 @@ function createApiClient(tenant: string): ApiClient {
 
     checkPermission(params) {
       return postJson<CheckResult>(tenantPath(tenant, '/permissions/check'), {
-        metadata: { snap_token: '', schema_version: '', depth: 20 },
+        metadata: { snap_token: params.snapToken, schema_version: '', depth: 20 },
         entity: { type: params.entityType, id: params.entityId },
         permission: params.permission,
         subject: { type: params.subjectType, id: params.subjectId, relation: params.subjectRelation ?? '' },
@@ -222,7 +226,7 @@ function createApiClient(tenant: string): ApiClient {
 
     lookupEntity(params) {
       return postJson<{ entity_ids?: string[]; continuous_token?: string }>(tenantPath(tenant, '/permissions/lookup-entity'), {
-        metadata: { snap_token: '', schema_version: '', depth: 20 },
+        metadata: { snap_token: params.snapToken, schema_version: '', depth: 20 },
         entity_type: params.entityType,
         permission: params.permission,
         subject: { type: params.subjectType, id: params.subjectId, relation: '' },
@@ -234,7 +238,7 @@ function createApiClient(tenant: string): ApiClient {
 
     lookupSubject(params) {
       return postJson<{ subject_ids?: string[]; continuous_token?: string }>(tenantPath(tenant, '/permissions/lookup-subject'), {
-        metadata: { snap_token: '', schema_version: '', depth: 20 },
+        metadata: { snap_token: params.snapToken, schema_version: '', depth: 20 },
         entity: { type: params.entityType, id: params.entityId },
         permission: params.permission,
         subject_reference: { type: params.subjectType, relation: params.subjectRelation ?? '' },
@@ -841,6 +845,7 @@ function SchemaScreen({ api }: { api: ApiClient }) {
 }
 
 interface RelationshipsFilterState {
+  snapToken: string
   entityType: string
   entityId: string
   relation: string
@@ -850,6 +855,7 @@ interface RelationshipsFilterState {
 }
 
 interface RelationshipsQuery {
+  snapToken: string
   entityType: string
   entityIds: string[]
   relation: string
@@ -863,6 +869,7 @@ interface LookupEntityQuery {
   permission: string
   subjectType: string
   subjectId: string
+  snapToken: string
 }
 
 interface LookupSubjectQuery {
@@ -871,6 +878,7 @@ interface LookupSubjectQuery {
   permission: string
   subjectType: string
   subjectRelation?: string
+  snapToken: string
 }
 
 type ResponsiveGridSpan = number | 'auto' | 'content' | Partial<Record<'base' | 'xs' | 'sm' | 'md' | 'lg' | 'xl', number | 'auto' | 'content'>>
@@ -885,6 +893,7 @@ const RELATIONSHIPS_PAGE_SIZE_OPTIONS = [
 ]
 
 const EMPTY_FILTERS: RelationshipsFilterState = {
+  snapToken: '',
   entityType: '',
   entityId: '',
   relation: '',
@@ -939,6 +948,7 @@ function TuplesScreen({ api }: { api: ApiClient }) {
 
   function normalizedFilter(): RelationshipsQuery {
     return {
+      snapToken: filters.snapToken.trim(),
       entityType: filters.entityType.trim(),
       entityIds: filters.entityId.trim() ? [filters.entityId.trim()] : [],
       relation: filters.relation.trim(),
@@ -949,6 +959,7 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   }
 
   const activeFilterItems = [
+    appliedFilter?.snapToken ? { label: 'Snap Token', value: appliedFilter.snapToken } : null,
     appliedFilter?.entityType ? { label: 'Entity Type', value: appliedFilter.entityType } : null,
     appliedFilter?.entityIds[0] ? { label: 'Entity ID', value: appliedFilter.entityIds[0] } : null,
     appliedFilter?.relation ? { label: 'Relation', value: appliedFilter.relation } : null,
@@ -1096,6 +1107,7 @@ function TuplesScreen({ api }: { api: ApiClient }) {
                   <FilterInput label="Relation" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.relation} onChange={(value) => setFilter('relation', value)} />
                   <FilterInput label="Subject Type" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.subjectType} onChange={(value) => setFilter('subjectType', value)} />
                   <FilterInput label="Subject ID" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.subjectId} onChange={(value) => setFilter('subjectId', value)} />
+                  <FilterInput label="Snap Token" placeholder="latest" span={{ base: 12, md: 6, lg: 4 }} value={filters.snapToken} onChange={(value) => setFilter('snapToken', value)} />
                   <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
                     <Select
                       label="Page Size"
@@ -1198,6 +1210,7 @@ function ResourceCheckTab({ api }: { api: ApiClient }) {
   const [subjectType, setSubjectType] = useState('')
   const [subjectId, setSubjectId] = useState('')
   const [subjectRelation, setSubjectRelation] = useState('')
+  const [snapToken, setSnapToken] = useState('')
   const [result, setResult] = useState<CheckResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -1212,7 +1225,15 @@ function ResourceCheckTab({ api }: { api: ApiClient }) {
     setResult(null)
 
     try {
-      setResult(await api.checkPermission({ entityType, entityId, permission, subjectType, subjectId, subjectRelation }))
+      setResult(await api.checkPermission({
+        entityType,
+        entityId,
+        permission,
+        subjectType,
+        subjectId,
+        subjectRelation,
+        snapToken: snapToken.trim(),
+      }))
     } catch (err: unknown) {
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
@@ -1234,7 +1255,8 @@ function ResourceCheckTab({ api }: { api: ApiClient }) {
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Permission" placeholder="view" withAsterisk value={permission} onChange={(event) => setPermission(event.currentTarget.value)} error={req(permission, validated)} /></Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Type" placeholder="person" withAsterisk value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value)} error={req(subjectType, validated)} /></Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject ID" placeholder="user-42" withAsterisk value={subjectId} onChange={(event) => setSubjectId(event.currentTarget.value)} error={req(subjectId, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Relation (Optional)" placeholder="member" value={subjectRelation} onChange={(event) => setSubjectRelation(event.currentTarget.value)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Relation" value={subjectRelation} onChange={(event) => setSubjectRelation(event.currentTarget.value)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Snap Token" value={snapToken} onChange={(event) => setSnapToken(event.currentTarget.value)} /></Grid.Col>
         </Grid>
       </ActionCard>
       {error && <ApiErrorAlert error={error} />}
@@ -1257,6 +1279,7 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
   const [permission, setPermission] = useState('')
   const [subjectType, setSubjectType] = useState('')
   const [subjectId, setSubjectId] = useState('')
+  const [snapToken, setSnapToken] = useState('')
   const [entityIds, setEntityIds] = useState<string[]>([])
   const [continuousToken, setContinuousToken] = useState('')
   const [loading, setLoading] = useState(false)
@@ -1272,6 +1295,7 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
       permission: permission.trim(),
       subjectType: subjectType.trim(),
       subjectId: subjectId.trim(),
+      snapToken: snapToken.trim(),
     }
   }
 
@@ -1327,10 +1351,11 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
         onAction={lookup}
       >
         <Grid gutter="md">
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Entity Type" placeholder="organization" withAsterisk value={entityType} onChange={(event) => setEntityType(event.currentTarget.value)} error={req(entityType, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Permission" placeholder="view" withAsterisk value={permission} onChange={(event) => setPermission(event.currentTarget.value)} error={req(permission, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Subject Type" placeholder="person" withAsterisk value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value)} error={req(subjectType, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Subject ID" placeholder="user-42" withAsterisk value={subjectId} onChange={(event) => setSubjectId(event.currentTarget.value)} error={req(subjectId, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Entity Type" placeholder="organization" withAsterisk value={entityType} onChange={(event) => setEntityType(event.currentTarget.value)} error={req(entityType, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Permission" placeholder="view" withAsterisk value={permission} onChange={(event) => setPermission(event.currentTarget.value)} error={req(permission, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Type" placeholder="person" withAsterisk value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value)} error={req(subjectType, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject ID" placeholder="user-42" withAsterisk value={subjectId} onChange={(event) => setSubjectId(event.currentTarget.value)} error={req(subjectId, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Snap Token" value={snapToken} onChange={(event) => setSnapToken(event.currentTarget.value)} /></Grid.Col>
         </Grid>
       </ActionCard>
       {error && <ApiErrorAlert error={error} />}
@@ -1350,6 +1375,7 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
   const [permission, setPermission] = useState('')
   const [subjectType, setSubjectType] = useState('')
   const [subjectRelation, setSubjectRelation] = useState('')
+  const [snapToken, setSnapToken] = useState('')
   const [subjectIds, setSubjectIds] = useState<string[]>([])
   const [continuousToken, setContinuousToken] = useState('')
   const [loading, setLoading] = useState(false)
@@ -1366,6 +1392,7 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
       permission: permission.trim(),
       subjectType: subjectType.trim(),
       subjectRelation: subjectRelation.trim(),
+      snapToken: snapToken.trim(),
     }
   }
 
@@ -1421,11 +1448,12 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
         onAction={lookup}
       >
         <Grid gutter="md">
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Entity Type" placeholder="organization" withAsterisk value={entityType} onChange={(event) => setEntityType(event.currentTarget.value)} error={req(entityType, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Entity ID" placeholder="acme" withAsterisk value={entityId} onChange={(event) => setEntityId(event.currentTarget.value)} error={req(entityId, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Permission" placeholder="view" withAsterisk value={permission} onChange={(event) => setPermission(event.currentTarget.value)} error={req(permission, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Subject Type" placeholder="person" withAsterisk value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value)} error={req(subjectType, validated)} /></Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}><TextInput label="Subject Relation (Optional)" placeholder="member" value={subjectRelation} onChange={(event) => setSubjectRelation(event.currentTarget.value)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Entity Type" placeholder="organization" withAsterisk value={entityType} onChange={(event) => setEntityType(event.currentTarget.value)} error={req(entityType, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Entity ID" placeholder="acme" withAsterisk value={entityId} onChange={(event) => setEntityId(event.currentTarget.value)} error={req(entityId, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Permission" placeholder="view" withAsterisk value={permission} onChange={(event) => setPermission(event.currentTarget.value)} error={req(permission, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Type" placeholder="person" withAsterisk value={subjectType} onChange={(event) => setSubjectType(event.currentTarget.value)} error={req(subjectType, validated)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Relation" value={subjectRelation} onChange={(event) => setSubjectRelation(event.currentTarget.value)} /></Grid.Col>
+          <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Snap Token" value={snapToken} onChange={(event) => setSnapToken(event.currentTarget.value)} /></Grid.Col>
         </Grid>
       </ActionCard>
       {error && <ApiErrorAlert error={error} />}
@@ -1464,31 +1492,45 @@ function CheckScreen({ api }: { api: ApiClient }) {
 
 function ApiErrorAlert({ error, m }: { error: Error; m?: string }) {
   if (error instanceof ApiError) {
-    const body = error.body as Record<string, unknown> | undefined
+    const bodyJson = error.body === undefined ? null : JSON.stringify(error.body, null, 2)
 
     return (
-      <Alert color="red" m={m}>
-        <Stack gap="xs">
-          <Group gap="xs">
-            <Badge color="red" variant="filled" size="sm">{error.status}</Badge>
-            <Text size="sm" ff="monospace">{error.path}</Text>
-          </Group>
-          {body && (
-            <Stack gap={4}>
-              {Object.entries(body).map(([key, value]) => (
-                <Group key={key} gap="xs" align="baseline" wrap="nowrap">
-                  <Text size="xs" c="red.3" w={70} miw={70}>{key}</Text>
-                  <Text size="sm" ff="monospace">{JSON.stringify(value)}</Text>
-                </Group>
-              ))}
-            </Stack>
-          )}
-        </Stack>
+      <Alert
+        color="red"
+        variant="outline"
+        title={<Text inherit ff="monospace">{error.status} {error.path}</Text>}
+        styles={{
+          label: {
+            overflow: 'visible',
+            textOverflow: 'unset',
+            whiteSpace: 'normal',
+            overflowWrap: 'anywhere',
+          },
+        }}
+        m={m}
+      >
+        {bodyJson ? (
+          <Text
+            component="pre"
+            size="sm"
+            ff="monospace"
+            c="dimmed"
+            style={{
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {bodyJson}
+          </Text>
+        ) : (
+          <Text size="sm" c="dimmed">{error.message}</Text>
+        )}
       </Alert>
     )
   }
 
-  return <Alert color="red" m={m}>{error.message}</Alert>
+  return <Alert color="red" variant="outline" m={m}>{error.message}</Alert>
 }
 
 export function App() {
