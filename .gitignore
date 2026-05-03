@@ -5,8 +5,6 @@
 
 # Go binaries
 /permify-ui
-/permify-gui
-/gui
 
 # Frontend
 /frontend/node_modules
