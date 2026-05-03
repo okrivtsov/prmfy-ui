@@ -1,4 +1,4 @@
-module github.com/permify/permify-gui
+module github.com/okrivtsov/permify-ui
 
 go 1.26.1
 

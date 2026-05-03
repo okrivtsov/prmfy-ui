@@ -4,6 +4,7 @@
 *.out
 
 # Go binaries
+/permify-ui
 /permify-gui
 /gui
 

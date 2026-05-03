@@ -1,6 +1,6 @@
-# prmfy-ui
+# permify-ui
 
-prmfy-ui is a lightweight web UI for [Permify](https://github.com/permify/permify).
+permify-ui is a lightweight web UI for [Permify](https://github.com/permify/permify).
 
 It helps you inspect schema versions, explore relationships, and run access checks without exposing the Permify token directly to the browser.
 
@@ -30,7 +30,7 @@ Permify is API-first. That is great for integrations, but it is not ideal when y
 
 Without a UI, that workflow usually turns into raw API calls, curl commands, or Postman requests.
 
-prmfy-ui provides a lightweight interface on top of Permify while keeping sensitive configuration on the server side.
+permify-ui provides a lightweight interface on top of Permify while keeping sensitive configuration on the server side.
 
 ## Architecture
 
@@ -126,14 +126,14 @@ npm run build
 
 ```bash
 mkdir -p build
-CGO_ENABLED=0 go build -o build/prmfy-ui .
+CGO_ENABLED=0 go build -o build/permify-ui .
 ```
 
 Example cross-compile for Ubuntu 24 on `x86_64`:
 
 ```bash
 mkdir -p build
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/prmfy-ui-linux-amd64 .
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/permify-ui-linux-amd64 .
 ```
 
 The resulting binary embeds the contents of `dist/`, so the target machine does not need Node.js, npm, Go, or a separate `dist/` directory.
@@ -221,7 +221,7 @@ When launching the app from source with `go run .`, the default config path is `
 When launching a built binary, pass the config path explicitly:
 
 ```bash
-./prmfy-ui /path/to/config.yaml
+./permify-ui /path/to/config.yaml
 ```
 
 ## Development
@@ -247,7 +247,7 @@ go run .
 
 ## License
 
-This project is distributed under the prmfy-ui Non-Commercial License 1.0.
+This project is distributed under the permify-ui Non-Commercial License 1.0.
 
 - Personal use is allowed
 - Internal company use is allowed
