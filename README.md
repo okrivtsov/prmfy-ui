@@ -6,6 +6,8 @@ It helps you inspect schema versions, explore relationships, and run access chec
 
 > Beta release: this project is still early, and compatibility with different Permify versions has not been thoroughly tested yet.
 
+> **Disclaimer:** This is an independent, community-built project. It is not affiliated with, endorsed by, or supported by [Permify](https://github.com/permify/permify) or FusionAuth.
+
 It combines:
 
 - a Go server for auth, proxying, and serving static assets
@@ -247,16 +249,7 @@ go run .
 
 ## License
 
-This project is distributed under the permify-ui Non-Commercial License 1.0.
-
-- Personal use is allowed
-- Internal company use is allowed
-- Modification is allowed
-- Commercial resale and paid hosted use are not allowed without prior written permission
-
-Commercial licensing requests: okrivtsov@gmail.com
-
-This is a source-available license, not a standard open source license.
+This project is distributed under the [MIT License](LICENSE).
 
 ## Notes
 
