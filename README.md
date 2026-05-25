@@ -12,7 +12,8 @@
 
 - Browse schema versions and diff against the previous one
 - Explore relationships with filters
-- Run permission checks, entity lookup, and subject lookup
+- Perform access checks: resource check, entity lookup, and subject lookup
+- On resource check only, expand the result to see why access was allowed or denied
 - Optional OIDC login with an email allowlist
 
 ## Requirements
