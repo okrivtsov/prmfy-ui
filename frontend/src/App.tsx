@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { IconArrowsExchange, IconBraces, IconChevronDown, IconLayersDifference, IconLockCheck, IconLogout, IconMoon, IconServerOff, IconSun } from '@tabler/icons-react'
-import { ActionIcon, Alert, AppShell, Badge, Box, Burger, Button, Card, Code, Combobox, Container, Grid, Group, InputBase, Loader, NavLink, Pill, ScrollArea, Select, Stack, Table, Tabs, Text, TextInput, Title, Tooltip, UnstyledButton, useCombobox, useMantineColorScheme } from '@mantine/core'
-import { useMediaQuery } from '@mantine/hooks'
+import { IconArrowsExchange, IconBraces, IconCheck, IconChevronDown, IconChevronUp, IconLayersDifference, IconLockCheck, IconLogout, IconMoon, IconServerOff, IconSun } from '@tabler/icons-react'
+import { ActionIcon, Anchor, AppShell, Badge, Box, Burger, Button, Card, Code, Collapse, Combobox, Container, Fieldset, Grid, Group, Input, InputBase, Loader, NavLink, SegmentedControl, Skeleton, Stack, Table, Text, TextInput, Title, Tooltip, UnstyledButton, useCombobox, useMantineColorScheme } from '@mantine/core'
+import { CheckResult, checkResultErrorProps, type ExpandTreeNode } from './CheckResult'
+
 
 type Page = 'schema' | 'relations' | 'check'
+type CheckMode = 'check' | 'lookup' | 'subject'
+
+const CHECK_MODES: { mode: CheckMode; label: string }[] = [
+  { mode: 'check', label: 'Resource check' },
+  { mode: 'lookup', label: 'Entity lookup' },
+  { mode: 'subject', label: 'Subject lookup' },
+]
 
 const V = 'v1'
 
@@ -98,6 +106,12 @@ interface ApiClient {
     snapToken: string
     continuousToken?: string
   }): Promise<LookupSubjectResult>
+  expandPermission(params: {
+    entityType: string
+    entityId: string
+    permission: string
+    snapToken: string
+  }): Promise<ExpandTreeNode>
 }
 
 function schemaCreatedAtTimestamp(value: string): number {
@@ -126,7 +140,7 @@ class ConnectionError extends Error {
   }
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public readonly path: string, public readonly status: number, message: string, public readonly body?: unknown) {
     super(message)
   }
@@ -246,6 +260,15 @@ function createApiClient(tenant: string): ApiClient {
       })
         .then((data) => ({ subjectIds: data.subject_ids ?? [], continuousToken: data.continuous_token ?? '' }))
     },
+
+    async expandPermission(params) {
+      const data = await postJson<{ tree: ExpandTreeNode }>(tenantPath(tenant, '/permissions/expand'), {
+        metadata: { snap_token: params.snapToken, schema_version: '' },
+        entity: { type: params.entityType, id: params.entityId },
+        permission: params.permission,
+      })
+      return data.tree
+    },
   }
 }
 
@@ -254,10 +277,26 @@ function parsePage(value: string | null): Page {
   return 'schema'
 }
 
-function ThemeToggle() {
+function parseCheckMode(value: string | null): CheckMode {
+  if (value === 'lookup' || value === 'subject') return value
+  return 'check'
+}
+
+function readLocationState(): { page: Page; checkMode: CheckMode } {
+  const params = new URLSearchParams(window.location.search)
+  const page = parsePage(params.get('page'))
+  return { page, checkMode: page === 'check' ? parseCheckMode(params.get('mode')) : 'check' }
+}
+
+function checkAccessUrl(mode: CheckMode) {
+  return mode === 'check' ? '/?page=check' : `/?page=check&mode=${mode}`
+}
+
+const footerActionIconStyles = { root: { color: 'var(--mantine-color-dimmed)' } }
+
+function ThemeSchemeIcon() {
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const activeColorScheme = colorScheme === 'dark' ? 'dark' : 'light'
-  const nextColorScheme = activeColorScheme === 'dark' ? 'light' : 'dark'
   const label = activeColorScheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
   const Icon = activeColorScheme === 'dark' ? IconSun : IconMoon
 
@@ -265,10 +304,10 @@ function ThemeToggle() {
     <Tooltip label={label} position="top">
       <ActionIcon
         variant="subtle"
-        color="gray"
         size="sm"
         aria-label={label}
-        onClick={() => setColorScheme(nextColorScheme)}
+        onClick={() => setColorScheme(activeColorScheme === 'dark' ? 'light' : 'dark')}
+        styles={footerActionIconStyles}
       >
         <Icon size={16} />
       </ActionIcon>
@@ -276,11 +315,44 @@ function ThemeToggle() {
   )
 }
 
+function LogoutControl() {
+  return (
+    <Tooltip label="Logout" position="top">
+      <Box component="form" action="/auth/logout" method="post">
+        <ActionIcon
+          type="submit"
+          variant="subtle"
+          size="sm"
+          aria-label="Logout"
+          styles={footerActionIconStyles}
+        >
+          <IconLogout size={16} />
+        </ActionIcon>
+      </Box>
+    </Tooltip>
+  )
+}
+
+function NavbarFooter({ authEnabled, email }: { authEnabled: boolean; email: string }) {
+  if (!authEnabled) return null
+
+  return (
+    <AppShell.Section px="lg" py="md" mt="md">
+      <Group gap="xs" wrap="nowrap">
+        <Text size="xs" c="dimmed" truncate="end" style={{ flex: 1, minWidth: 0 }}>
+          {email}
+        </Text>
+        <LogoutControl />
+      </Group>
+    </AppShell.Section>
+  )
+}
+
 function ConnectionScreen({ permifyUrl, onRetry }: { permifyUrl: string; onRetry: () => void }) {
   return (
     <Stack align="center" justify="center" h="100vh" bg="var(--mantine-color-body)">
       <Container size={400} w="100%">
-        <Card withBorder shadow="sm" p="xl">
+        <Card withBorder p="xl">
           <Stack align="center" gap="md">
             <IconServerOff size={48} color="var(--mantine-color-red-6)" />
             <Title order={3}>Cannot connect to Permify</Title>
@@ -302,9 +374,9 @@ function LoginScreen({ provider }: { provider: string }) {
   return (
     <Stack align="center" justify="center" h="100vh" bg="var(--mantine-color-body)">
       <Container size={340} w="100%">
-        <Card withBorder shadow="sm" p="xl">
+        <Card withBorder p="xl">
           <Stack align="center">
-            <Title order={2} fw={600}>Permify UI</Title>
+            <Title order={2}>Permify UI</Title>
             <Button component="a" href="/auth/login" fullWidth>
               Sign in with {provider}
             </Button>
@@ -507,26 +579,38 @@ function tokenizeLine(line: string): ReactNode {
   return parts
 }
 
+function SchemaCodeSurface({ children }: { children: ReactNode }) {
+  return (
+    <Box
+      component="pre"
+      mt="xs"
+      mb={0}
+      ml={0}
+      mr={0}
+      ff="monospace"
+      fz="xs"
+      style={{
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        overflow: 'auto',
+      }}
+    >
+      {children}
+    </Box>
+  )
+}
+
 function SchemaHighlight({ code }: { code: string }) {
   const lines = code.split('\n')
 
   return (
-    <Code
-      block
-      styles={{
-        root: {
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          lineHeight: 1.68,
-          fontSize: '13px',
-          background: 'transparent',
-          border: 0,
-          padding: 0,
-        },
-      }}
-    >
-      {lines.map((line, lineIndex) => <div key={lineIndex}>{tokenizeLine(line)}</div>)}
-    </Code>
+    <SchemaCodeSurface>
+      {lines.map((line, lineIndex) => (
+        <Box key={lineIndex} component="span" display="block">
+          {tokenizeLine(line)}
+        </Box>
+      ))}
+    </SchemaCodeSurface>
   )
 }
 
@@ -536,59 +620,71 @@ function SchemaDiffView({ blocks, emptyLabel }: { blocks: SchemaDiffBlock[]; emp
   }
 
   return (
-    <Stack gap="xl">
-      {blocks.map((block) => {
-        const titleColor =
-          block.kind === 'added'
-            ? 'var(--schema-diff-added)'
-            : block.kind === 'removed'
-              ? 'var(--schema-diff-removed)'
-              : 'var(--mantine-color-text)'
+    <SchemaCodeSurface>
+      <Stack gap="xl">
+        {blocks.map((block) => {
+          const titleColor =
+            block.kind === 'added'
+              ? 'var(--schema-diff-added)'
+              : block.kind === 'removed'
+                ? 'var(--schema-diff-removed)'
+                : undefined
 
-        return (
-          <Stack key={block.key} gap="xs">
-            <Text
-              ff="monospace"
-              fw={400}
-              style={{
-                color: titleColor,
-                overflowWrap: 'anywhere',
-                fontSize: '13px',
-                lineHeight: 1.68,
-              }}
-            >
-              {block.title}
-            </Text>
-            <Box pl="sm">
-              <Stack gap={4}>
+          return (
+            <Stack key={block.key} gap="xs">
+              <Text
+                ff="monospace"
+                fz="xs"
+                c={titleColor}
+                style={{ overflowWrap: 'anywhere' }}
+              >
+                {block.title}
+              </Text>
+              <Stack gap={4} pl="sm">
                 {block.lines.map((line, index) => (
                   <Text
                     key={`${block.key}:${index}`}
                     ff="monospace"
-                    style={{
-                      color: line.kind === 'added' ? 'var(--schema-diff-added)' : 'var(--schema-diff-removed)',
-                      overflowWrap: 'anywhere',
-                      fontSize: '13px',
-                      lineHeight: 1.68,
-                    }}
+                    fz="xs"
+                    c={line.kind === 'added' ? 'var(--schema-diff-added)' : 'var(--schema-diff-removed)'}
+                    style={{ overflowWrap: 'anywhere' }}
                   >
                     {line.kind === 'added' ? '+' : '-'} {line.text}
                   </Text>
                 ))}
               </Stack>
-            </Box>
-          </Stack>
-        )
-      })}
-    </Stack>
+            </Stack>
+          )
+        })}
+      </Stack>
+    </SchemaCodeSurface>
   )
 }
 
-function SchemaContentInset({ children }: { children: ReactNode }) {
+const PAGE_MAX_WIDTH = 880
+const RELATIONS_PAGE_MAX_WIDTH = 1040
+
+function PageShell({ children, wide }: { children: ReactNode; wide?: boolean }) {
   return (
-    <Box px={{ base: 0, sm: 'md' }}>
+    <Box
+      maw={wide ? RELATIONS_PAGE_MAX_WIDTH : PAGE_MAX_WIDTH}
+      px={{ base: 'md', sm: 'xl' }}
+      py={{ base: 'md', sm: 'xl' }}
+    >
       {children}
     </Box>
+  )
+}
+
+function PageHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <Group justify="space-between" align="flex-start" wrap="nowrap" w="100%">
+      <Stack gap={4} style={{ minWidth: 0 }}>
+        <Title order={4}>{title}</Title>
+        {description && <Text size="sm" c="dimmed">{description}</Text>}
+      </Stack>
+      <ThemeSchemeIcon />
+    </Group>
   )
 }
 
@@ -670,8 +766,30 @@ function SchemaScreen({ api }: { api: ApiClient }) {
       .finally(() => setLoading(false))
   }, [api])
 
-  if (loading) return <Loader m="xl" />
-  if (error) return <ApiErrorAlert error={error} m="xl" />
+  if (loading) {
+    return (
+      <PageShell>
+        <Stack gap="xl">
+          <Skeleton h={26} w={120} />
+          <Skeleton h={60} />
+          <Stack gap="sm">
+            <Skeleton h={20} w={100} />
+            <Skeleton h={360} />
+          </Stack>
+        </Stack>
+      </PageShell>
+    )
+  }
+  if (error) {
+    return (
+      <PageShell>
+        <Stack gap="xl">
+          <PageHeader title="Schemas" />
+          <CheckResult {...checkResultErrorProps(error)} />
+        </Stack>
+      </PageShell>
+    )
+  }
 
   const selectedSchema = schemas.find((schema) => schema.version === selected)
   const selectedIndex = schemas.findIndex((schema) => schema.version === selected)
@@ -707,20 +825,18 @@ function SchemaScreen({ api }: { api: ApiClient }) {
   }
 
   return (
-    <Box maw={880} px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
+    <PageShell>
       <Stack gap="xl">
-        <Grid gutter="sm" align="stretch">
-          <Grid.Col span={{ base: 12, sm: 'auto' }}>
-            <Box maw={540}>
+        <PageHeader title="Schemas" />
+        <Group align="flex-end" gap="sm" wrap="wrap">
+          <Box style={{ flex: 1, minWidth: 0, maxWidth: 540 }}>
             <Combobox
               store={combobox}
               onOptionSubmit={(value) => {
-                if (value === selected) {
-                  combobox.closeDropdown()
-                  return
+                if (value !== selected) {
+                  setSelected(value)
+                  loadSchema(value)
                 }
-                setSelected(value)
-                loadSchema(value)
                 combobox.closeDropdown()
               }}
               position="bottom-start"
@@ -729,83 +845,87 @@ function SchemaScreen({ api }: { api: ApiClient }) {
             >
               <Combobox.Target targetType="button">
                 <InputBase
+                  label="Version"
                   component="button"
                   type="button"
                   pointer
-                  multiline
-                  radius="md"
-                  size="md"
                   w="100%"
-                  onClick={() => combobox.toggleDropdown()}
-                  rightSection={<IconChevronDown size={16} stroke={1.75} color="var(--mantine-color-dimmed)" />}
+                  rightSection={<Combobox.Chevron />}
                   rightSectionPointerEvents="none"
+                  onClick={() => combobox.toggleDropdown()}
                 >
-                  <Stack gap={0} align="flex-start">
-                    <Text component="span" fw={500}>
+                  <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+                    <Text size="sm" fw={500} component="span" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {selected}
                     </Text>
-                    {selectedSchema?.created_at && <Text size="xs" c="dimmed">{fmtDate(selectedSchema.created_at)}</Text>}
-                  </Stack>
+                    {selectedSchema?.created_at && (
+                      <Text size="xs" c="dimmed" component="span" style={{ whiteSpace: 'nowrap' }}>
+                        {fmtDate(selectedSchema.created_at)}
+                      </Text>
+                    )}
+                  </Group>
                 </InputBase>
               </Combobox.Target>
               <Combobox.Dropdown>
-                <ScrollArea.Autosize mah={260} type="scroll" offsetScrollbars>
-                  <Combobox.Options>
-                    {schemas.map((schema) => (
-                      <Combobox.Option
-                        key={schema.version}
-                        value={schema.version}
-                        style={schema.version === selected ? { backgroundColor: 'var(--mantine-primary-color-light)' } : undefined}
-                      >
-                        <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
-                          <Stack gap={0} style={{ minWidth: 0 }}>
-                            <Text size="sm">{schema.version}</Text>
-                            <Text size="xs" c="dimmed">{fmtDate(schema.created_at)}</Text>
-                          </Stack>
-                          {schema.version === selected && <Text size="xs" c="primary" fw={500}>Selected</Text>}
+                <Combobox.Options mah={260} style={{ overflowY: 'auto' }}>
+                  {schemas.map((schema) => (
+                    <Combobox.Option
+                      key={schema.version}
+                      value={schema.version}
+                      active={schema.version === selected}
+                    >
+                      <Group justify="space-between" wrap="nowrap" gap="sm" style={{ flex: 1, minWidth: 0 }}>
+                        <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                          <Text size="sm" fw={schema.version === selected ? 500 : 400} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {schema.version}
+                          </Text>
+                          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                            {fmtDate(schema.created_at)}
+                          </Text>
                         </Group>
-                      </Combobox.Option>
-                    ))}
-                  </Combobox.Options>
-                </ScrollArea.Autosize>
+                        {schema.version === selected && (
+                          <IconCheck size={16} stroke={2} color="var(--mantine-primary-color-filled)" />
+                        )}
+                      </Group>
+                    </Combobox.Option>
+                  ))}
+                </Combobox.Options>
               </Combobox.Dropdown>
             </Combobox>
-            </Box>
-          </Grid.Col>
-
-          {canCompare && (
-            <Grid.Col span={{ base: 12, sm: 'content' }}>
+          </Box>
+          <Tooltip
+            label="No previous version to compare with"
+            disabled={canCompare || !!compareBlocks}
+            withArrow
+            events={{ hover: true, focus: true, touch: true }}
+          >
+            <Box>
               <Button
                 variant="default"
-                radius="md"
-                h="100%"
-                w={{ base: '100%', sm: 340 }}
-                leftSection={compareBlocks ? undefined : <IconLayersDifference size={18} />}
+                leftSection={compareBlocks ? undefined : <IconLayersDifference size={16} />}
                 loading={compareLoading}
-                disabled={schemaLoading}
+                disabled={schemaLoading || !canCompare}
                 onClick={toggleCompare}
               >
-                {compareBlocks ? 'Back to schema' : 'Compare with previous version'}
+                {compareBlocks ? 'Back to schema' : 'Compare with previous'}
               </Button>
-            </Grid.Col>
-          )}
-        </Grid>
+            </Box>
+          </Tooltip>
+        </Group>
 
-        {compareError && <ApiErrorAlert error={compareError} />}
+        {compareError && <CheckResult {...checkResultErrorProps(compareError)} />}
 
-        {schemaLoading || compareLoading ? (
-          <Loader mt="md" />
-        ) : compareBlocks ? (
-          <SchemaContentInset>
-            <SchemaDiffView blocks={compareBlocks} emptyLabel="No changes relative to previous." />
-          </SchemaContentInset>
-        ) : (
-          <SchemaContentInset>
+        <Input.Wrapper label={compareBlocks ? 'Diff' : 'Definition'}>
+          {schemaLoading || compareLoading ? (
+            <Skeleton h={320} />
+          ) : compareBlocks ? (
+            <SchemaDiffView blocks={compareBlocks} emptyLabel="No changes" />
+          ) : (
             <SchemaHighlight code={generateSchemaText(entities)} />
-          </SchemaContentInset>
-        )}
+          )}
+        </Input.Wrapper>
       </Stack>
-    </Box>
+    </PageShell>
   )
 }
 
@@ -854,7 +974,7 @@ const RELATIONSHIPS_PAGE_SIZE_OPTIONS = [
   { value: '100', label: '100' },
   { value: '250', label: '250' },
   { value: '500', label: '500' },
-  { value: 'all', label: 'All records' },
+  { value: 'all', label: 'All' },
 ]
 
 const EMPTY_FILTERS: RelationshipsFilterState = {
@@ -880,13 +1000,10 @@ function FilterInput({
   value: string
   onChange: (value: string) => void
 }) {
-  const hasValue = value.trim().length > 0
-
   return (
     <Grid.Col span={span}>
       <TextInput
         label={label}
-        labelProps={hasValue ? undefined : { c: 'dimmed' }}
         placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
@@ -896,7 +1013,6 @@ function FilterInput({
 }
 
 function TuplesScreen({ api }: { api: ApiClient }) {
-  const isNarrowViewport = useMediaQuery('(max-width: 48em)')
   const [filters, setFilters] = useState<RelationshipsFilterState>(EMPTY_FILTERS)
   const [tuples, setTuples] = useState<TupleRecord[]>([])
   const [continuousToken, setContinuousToken] = useState('')
@@ -924,12 +1040,12 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   }
 
   const activeFilterItems = [
-    appliedFilter?.snapToken ? { label: 'Snap Token', value: appliedFilter.snapToken } : null,
     appliedFilter?.entityType ? { label: 'Entity Type', value: appliedFilter.entityType } : null,
     appliedFilter?.entityIds[0] ? { label: 'Entity ID', value: appliedFilter.entityIds[0] } : null,
     appliedFilter?.relation ? { label: 'Relation', value: appliedFilter.relation } : null,
     appliedFilter?.subjectType ? { label: 'Subject Type', value: appliedFilter.subjectType } : null,
     appliedFilter?.subjectIds[0] ? { label: 'Subject ID', value: appliedFilter.subjectIds[0] } : null,
+    appliedFilter?.snapToken ? { label: 'Snap Token', value: appliedFilter.snapToken } : null,
     appliedFilter
       ? { label: 'Page Size', value: appliedFilter.pageSize === undefined ? 'All records' : String(appliedFilter.pageSize) }
       : null,
@@ -1002,7 +1118,7 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   }
 
   const tuplesTable = (
-    <Table verticalSpacing="xs" horizontalSpacing="sm" stickyHeader>
+    <Table stickyHeader>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>Entity Type</Table.Th>
@@ -1022,12 +1138,12 @@ function TuplesScreen({ api }: { api: ApiClient }) {
           </Table.Tr>
         ) : tuples.map((tuple) => (
           <Table.Tr key={`${tuple.entity.type}:${tuple.entity.id}:${tuple.relation}:${tuple.subject.type}:${tuple.subject.id}:${tuple.subject.relation}`}>
-            <Table.Td><Text size="sm">{tuple.entity.type}</Text></Table.Td>
-            <Table.Td><Text ff="monospace" size="sm">{tuple.entity.id}</Text></Table.Td>
-            <Table.Td><Text ff="monospace" size="sm">{tuple.relation}</Text></Table.Td>
-            <Table.Td><Text size="sm">{tuple.subject.type}</Text></Table.Td>
-            <Table.Td><Text ff="monospace" size="sm">{tuple.subject.id}</Text></Table.Td>
-            <Table.Td><Text size="sm" c="dimmed">{tuple.subject.relation || '—'}</Text></Table.Td>
+            <Table.Td>{tuple.entity.type}</Table.Td>
+            <Table.Td>{tuple.entity.id}</Table.Td>
+            <Table.Td>{tuple.relation}</Table.Td>
+            <Table.Td>{tuple.subject.type}</Table.Td>
+            <Table.Td>{tuple.subject.id}</Table.Td>
+            <Table.Td c="dimmed">{tuple.subject.relation || '—'}</Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody>
@@ -1035,80 +1151,101 @@ function TuplesScreen({ api }: { api: ApiClient }) {
   )
 
   return (
-    <Box maw={1120} px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
-      <Stack gap={loaded && !filtersExpanded ? 'lg' : 'xl'}>
-        <Card withBorder p="md">
-          <Stack gap={filtersExpanded ? 'md' : 0}>
-            <Group justify="space-between" align="center" wrap="nowrap">
-              {filtersExpanded ? (
-                <Text size="sm" fw={500}>Filters</Text>
-              ) : (
-                <Group gap="md" align="center" style={{ flex: 1, minWidth: 0 }}>
-                  <Text size="sm" fw={500}>Filters</Text>
+    <PageShell wide>
+      <Stack gap="xl">
+        <PageHeader title="Relations" />
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            fetchTuples()
+          }}
+        >
+        <Fieldset legend="Filters">
+          <Stack gap={0}>
+            <Collapse in={loaded && !filtersExpanded}>
+              <Group justify="space-between" align="center" wrap="nowrap">
+                <Box style={{ flex: 1, minWidth: 0 }}>
                   {activeFilterItems.length > 0 ? (
-                    <Pill.Group style={{ alignItems: 'center' }}>
+                    <Group gap="xs">
                       {activeFilterItems.map((item) => (
-                        <Pill key={`${item.label}:${item.value}`} size="sm">
+                        <Badge key={`${item.label}:${item.value}`} variant="light" color="gray">
                           {item.label}: {item.value}
-                        </Pill>
+                        </Badge>
                       ))}
-                    </Pill.Group>
+                    </Group>
                   ) : (
                     <Text size="sm" c="dimmed">All relationships</Text>
                   )}
-                </Group>
-              )}
-              {loaded && (
-                <Button variant="default" size="xs" onClick={() => setFiltersExpanded((current) => !current)}>
-                  {filtersExpanded ? 'Hide' : 'Edit filters'}
-                </Button>
-              )}
-            </Group>
-            {filtersExpanded && (
-              <>
+                </Box>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => setFiltersExpanded(true)}
+                  aria-label="Show filters"
+                >
+                  <IconChevronDown size={16} />
+                </ActionIcon>
+              </Group>
+            </Collapse>
+            <Collapse in={filtersExpanded}>
+              <Stack gap="md">
                 <Grid gutter="md">
-                  <FilterInput label="Entity Type" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.entityType} onChange={(value) => setFilter('entityType', value)} />
-                  <FilterInput label="Entity ID" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.entityId} onChange={(value) => setFilter('entityId', value)} />
-                  <FilterInput label="Relation" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.relation} onChange={(value) => setFilter('relation', value)} />
-                  <FilterInput label="Subject Type" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.subjectType} onChange={(value) => setFilter('subjectType', value)} />
-                  <FilterInput label="Subject ID" placeholder="any" span={{ base: 12, md: 6, lg: 4 }} value={filters.subjectId} onChange={(value) => setFilter('subjectId', value)} />
-                  <FilterInput label="Snap Token" placeholder="latest" span={{ base: 12, md: 6, lg: 4 }} value={filters.snapToken} onChange={(value) => setFilter('snapToken', value)} />
-                  <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
-                    <Select
-                      label="Page Size"
+                  <FilterInput label="Entity Type" placeholder="any" span={{ base: 12, sm: 6, lg: 4 }} value={filters.entityType} onChange={(value) => setFilter('entityType', value)} />
+                  <FilterInput label="Entity ID" placeholder="any" span={{ base: 12, sm: 6, lg: 4 }} value={filters.entityId} onChange={(value) => setFilter('entityId', value)} />
+                  <FilterInput label="Relation" placeholder="any" span={{ base: 12, sm: 6, lg: 4 }} value={filters.relation} onChange={(value) => setFilter('relation', value)} />
+                  <FilterInput label="Subject Type" placeholder="any" span={{ base: 12, sm: 6, lg: 4 }} value={filters.subjectType} onChange={(value) => setFilter('subjectType', value)} />
+                  <FilterInput label="Subject ID" placeholder="any" span={{ base: 12, sm: 6, lg: 4 }} value={filters.subjectId} onChange={(value) => setFilter('subjectId', value)} />
+                  <FilterInput label="Snap Token" placeholder="latest" span={{ base: 12, sm: 6, lg: 4 }} value={filters.snapToken} onChange={(value) => setFilter('snapToken', value)} />
+                </Grid>
+                <Group justify="space-between" align="center" wrap="wrap" gap="md">
+                  <Group gap="sm">
+                    <Button type="submit" loading={loading}>Load</Button>
+                    <Button type="button" variant="default" onClick={reset}>Reset</Button>
+                  </Group>
+                  <Group gap="sm" align="center" wrap="nowrap">
+                    <Text size="sm" fw={500}>Page size</Text>
+                    <SegmentedControl
                       data={RELATIONSHIPS_PAGE_SIZE_OPTIONS}
                       value={filters.pageSize}
                       onChange={(value) => setFilter('pageSize', value ?? DEFAULT_RELATIONSHIPS_PAGE_SIZE)}
-                      allowDeselect={false}
                     />
-                  </Grid.Col>
-                </Grid>
-                <Group gap="sm">
-                  <Button onClick={fetchTuples} loading={loading}>Load</Button>
-                  <Button variant="default" onClick={reset}>Reset</Button>
+                    {loaded && (
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => setFiltersExpanded(false)}
+                        aria-label="Hide filters"
+                      >
+                        <IconChevronUp size={16} />
+                      </ActionIcon>
+                    )}
+                  </Group>
                 </Group>
-              </>
-            )}
+              </Stack>
+            </Collapse>
           </Stack>
-        </Card>
+        </Fieldset>
+        </form>
 
-        {error && <ApiErrorAlert error={error} />}
+        {error && <CheckResult {...checkResultErrorProps(error)} />}
 
         {!loaded && !error && (
-          <Text size="sm" c="dimmed">
-            Set filters and click Load to explore relationships.
-          </Text>
+          <Text size="sm" c="dimmed">Press Load to fetch relationships</Text>
         )}
 
         {loaded && (
-          <Stack gap="md">
-            {isNarrowViewport ? (
-              <Table.ScrollContainer minWidth={900} type="native">
-                {tuplesTable}
-              </Table.ScrollContainer>
-            ) : (
-              tuplesTable
-            )}
+          <Stack gap="sm">
+            <Text size="sm">
+              <Text component="span" fw={500}>
+                {tuples.length} {tuples.length === 1 ? 'record' : 'records'}
+              </Text>
+              {continuousToken && (
+                <Text component="span" c="dimmed"> · more available</Text>
+              )}
+            </Text>
+            <Table.ScrollContainer minWidth={900} type="native">
+              {tuplesTable}
+            </Table.ScrollContainer>
             {continuousToken && (
               <Group justify="flex-end">
                 <Button variant="default" onClick={loadMore} loading={loadingMore}>Load more</Button>
@@ -1117,7 +1254,7 @@ function TuplesScreen({ api }: { api: ApiClient }) {
           </Stack>
         )}
       </Stack>
-    </Box>
+    </PageShell>
   )
 }
 
@@ -1128,47 +1265,340 @@ function req(value: string, validated: boolean) {
 function ActionCard({
   actionLabel,
   children,
-  description,
   loading,
   onAction,
 }: {
   actionLabel: string
   children: ReactNode
-  description: string
   loading: boolean
   onAction: () => void
 }) {
   return (
-    <Card withBorder>
-      <Stack>
-        <Text size="md" fw={500} c="dimmed">{description}</Text>
+    <Fieldset>
+      <Stack gap="md">
         {children}
-        <Button onClick={onAction} loading={loading} w="fit-content">
+        <Button type="button" onClick={onAction} loading={loading} w="fit-content">
           {actionLabel}
         </Button>
       </Stack>
-    </Card>
+    </Fieldset>
   )
 }
 
-function BadgeListResult({ countLabel, values }: { countLabel: string; values: string[] }) {
+function LookupListResult({
+  values,
+  singularNoun,
+  pluralNoun,
+  continuousToken,
+  onLoadMore,
+  loadingMore,
+}: {
+  values: string[]
+  singularNoun: string
+  pluralNoun: string
+  continuousToken?: string
+  onLoadMore?: () => void
+  loadingMore?: boolean
+}) {
   return (
     <Stack gap="xs">
-      <Text size="sm" c="dimmed">
-        {values.length} {countLabel}
+      <Text size="sm">
+        <Text component="span" fw={500}>
+          {values.length} {values.length === 1 ? singularNoun : pluralNoun} found
+        </Text>
+        {continuousToken && (
+          <Text component="span" c="dimmed"> · more available</Text>
+        )}
       </Text>
       <Group gap="xs">
         {values.map((value) => (
-          <Badge key={value} variant="light">
+          <Badge key={value} variant="light" color="gray">
             {value}
           </Badge>
         ))}
       </Group>
+      {continuousToken && onLoadMore && (
+        <Group justify="flex-end">
+          <Button variant="default" onClick={onLoadMore} loading={loadingMore}>Load more</Button>
+        </Group>
+      )}
     </Stack>
   )
 }
 
-function ResourceCheckTab({ api }: { api: ApiClient }) {
+function CheckResultPanel({
+  result,
+  subjectType,
+  subjectId,
+  subjectRelation,
+  explainTree,
+  explainError,
+}: {
+  result: CheckResult
+  subjectType: string
+  subjectId: string
+  subjectRelation: string
+  explainTree: ExpandTreeNode | null
+  explainError: Error | null
+}) {
+  const allowed = result.can === 'CHECK_RESULT_ALLOWED'
+
+  return (
+    <Stack gap="sm">
+      <CheckResult
+        status={allowed ? 'allowed' : 'denied'}
+        expandTree={explainTree}
+        checkedSubject={{
+          type: subjectType,
+          id: subjectId,
+          relation: subjectRelation,
+        }}
+        emptyMessage={
+          !explainError
+            ? 'No relation path connects the subject to the requested permission.'
+            : undefined
+        }
+      />
+
+      {explainError && <CheckResult {...checkResultErrorProps(explainError)} />}
+    </Stack>
+  )
+}
+
+interface CheckHistoryEntry {
+  entityType: string
+  entityId: string
+  permission: string
+  subjectType: string
+  subjectId: string
+  subjectRelation: string
+  snapToken: string
+  result: CheckResult['can']
+  ts: number
+}
+
+interface EntityLookupHistoryEntry {
+  entityType: string
+  permission: string
+  subjectType: string
+  subjectId: string
+  snapToken: string
+  ts: number
+}
+
+interface SubjectLookupHistoryEntry {
+  entityType: string
+  entityId: string
+  permission: string
+  subjectType: string
+  subjectRelation: string
+  snapToken: string
+  ts: number
+}
+
+const FORM_HISTORY_LIMIT = 20
+
+function checkHistoryStorageKey(tenant: string) {
+  return `permify-ui.check-history.${tenant}`
+}
+
+function entityLookupHistoryStorageKey(tenant: string) {
+  return `permify-ui.entity-lookup-history.${tenant}`
+}
+
+function subjectLookupHistoryStorageKey(tenant: string) {
+  return `permify-ui.subject-lookup-history.${tenant}`
+}
+
+function loadFormHistory<T>(tenant: string, storageKey: string): T[] {
+  if (!tenant) return []
+  try {
+    const raw = localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveFormHistory<T>(tenant: string, storageKey: string, history: T[]) {
+  if (!tenant) return
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(history))
+  } catch {
+    // localStorage may throw in private mode / quota; ignore
+  }
+}
+
+function checkHistoryKey(entry: Pick<CheckHistoryEntry, 'entityType' | 'entityId' | 'permission' | 'subjectType' | 'subjectId' | 'subjectRelation' | 'snapToken'>) {
+  return [
+    entry.entityType,
+    entry.entityId,
+    entry.permission,
+    entry.subjectType,
+    entry.subjectId,
+    entry.subjectRelation,
+    entry.snapToken,
+  ].join('\0')
+}
+
+function entityLookupHistoryKey(entry: Pick<EntityLookupHistoryEntry, 'entityType' | 'permission' | 'subjectType' | 'subjectId' | 'snapToken'>) {
+  return [entry.entityType, entry.permission, entry.subjectType, entry.subjectId, entry.snapToken].join('\0')
+}
+
+function subjectLookupHistoryKey(entry: Pick<SubjectLookupHistoryEntry, 'entityType' | 'entityId' | 'permission' | 'subjectType' | 'subjectRelation' | 'snapToken'>) {
+  return [
+    entry.entityType,
+    entry.entityId,
+    entry.permission,
+    entry.subjectType,
+    entry.subjectRelation,
+    entry.snapToken,
+  ].join('\0')
+}
+
+function useFormHistory<T>(
+  tenant: string,
+  storageKey: string,
+  entryKey: (entry: T) => string,
+) {
+  const [history, setHistory] = useState<T[]>([])
+
+  useEffect(() => {
+    setHistory(loadFormHistory<T>(tenant, storageKey))
+  }, [tenant, storageKey])
+
+  function pushHistory(entry: T) {
+    setHistory((prev) => {
+      const next = [entry, ...prev.filter((item) => entryKey(item) !== entryKey(entry))].slice(0, FORM_HISTORY_LIMIT)
+      saveFormHistory(tenant, storageKey, next)
+      return next
+    })
+  }
+
+  return { history, pushHistory }
+}
+
+function formatSubjectCell(entry: Pick<CheckHistoryEntry, 'subjectType' | 'subjectId' | 'subjectRelation'>): string {
+  const base = `${entry.subjectType}:${entry.subjectId}`
+  return entry.subjectRelation ? `${base}#${entry.subjectRelation}` : base
+}
+
+function formatEntityCell(entry: Pick<CheckHistoryEntry, 'entityType' | 'entityId'>): string {
+  return `${entry.entityType}:${entry.entityId}`
+}
+
+type CheckQueryFields = Pick<CheckHistoryEntry, 'entityType' | 'entityId' | 'permission' | 'subjectType' | 'subjectId' | 'subjectRelation'>
+
+function formatCheckQueryLine(fields: CheckQueryFields): string {
+  return `${formatEntityCell(fields)} · ${fields.permission} · ${formatSubjectCell(fields)}`
+}
+
+function CheckQueryLineText({ fields }: { fields: CheckQueryFields }) {
+  return (
+    <>
+      {formatEntityCell(fields)}
+      <Text component="span" c="dimmed" inherit>
+        {' · '}
+      </Text>
+      {fields.permission}
+      <Text component="span" c="dimmed" inherit>
+        {' · '}
+      </Text>
+      {formatSubjectCell(fields)}
+    </>
+  )
+}
+
+function formatEntityLookupLine(fields: Pick<EntityLookupHistoryEntry, 'entityType' | 'permission' | 'subjectType' | 'subjectId'>): string {
+  return `${fields.entityType} · ${fields.permission} · ${fields.subjectType}:${fields.subjectId}`
+}
+
+function EntityLookupQueryLineText({ fields }: { fields: Pick<EntityLookupHistoryEntry, 'entityType' | 'permission' | 'subjectType' | 'subjectId'> }) {
+  return (
+    <>
+      {fields.entityType}
+      <Text component="span" c="dimmed" inherit>
+        {' · '}
+      </Text>
+      {fields.permission}
+      <Text component="span" c="dimmed" inherit>
+        {' · '}
+      </Text>
+      {`${fields.subjectType}:${fields.subjectId}`}
+    </>
+  )
+}
+
+function formatSubjectLookupSubject(fields: Pick<SubjectLookupHistoryEntry, 'subjectType' | 'subjectRelation'>): string {
+  return fields.subjectRelation ? `${fields.subjectType}#${fields.subjectRelation}` : fields.subjectType
+}
+
+function formatSubjectLookupLine(fields: Pick<SubjectLookupHistoryEntry, 'entityType' | 'entityId' | 'permission' | 'subjectType' | 'subjectRelation'>): string {
+  return `${formatEntityCell(fields)} · ${fields.permission} · ${formatSubjectLookupSubject(fields)}`
+}
+
+function SubjectLookupQueryLineText({ fields }: { fields: Pick<SubjectLookupHistoryEntry, 'entityType' | 'entityId' | 'permission' | 'subjectType' | 'subjectRelation'> }) {
+  return (
+    <>
+      {formatEntityCell(fields)}
+      <Text component="span" c="dimmed" inherit>
+        {' · '}
+      </Text>
+      {fields.permission}
+      <Text component="span" c="dimmed" inherit>
+        {' · '}
+      </Text>
+      {formatSubjectLookupSubject(fields)}
+    </>
+  )
+}
+
+function LastFormHistoryRow({
+  label,
+  summary,
+  onUse,
+  children,
+}: {
+  label: string
+  summary: string
+  onUse: () => void
+  children: ReactNode
+}) {
+  return (
+    <Text size="sm" lh={1.35} style={{ overflowWrap: 'anywhere' }}>
+      <Text component="span" c="dimmed">{label}</Text>
+      <Anchor
+        component="button"
+        type="button"
+        c="var(--mantine-color-text)"
+        underline="hover"
+        aria-label={`Fill form with ${summary}`}
+        onClick={onUse}
+      >
+        {children}
+      </Anchor>
+    </Text>
+  )
+}
+
+function useCheckHistory(tenant: string) {
+  const storageKey = checkHistoryStorageKey(tenant)
+  return useFormHistory<CheckHistoryEntry>(tenant, storageKey, checkHistoryKey)
+}
+
+function useEntityLookupHistory(tenant: string) {
+  const storageKey = entityLookupHistoryStorageKey(tenant)
+  return useFormHistory<EntityLookupHistoryEntry>(tenant, storageKey, entityLookupHistoryKey)
+}
+
+function useSubjectLookupHistory(tenant: string) {
+  const storageKey = subjectLookupHistoryStorageKey(tenant)
+  return useFormHistory<SubjectLookupHistoryEntry>(tenant, storageKey, subjectLookupHistoryKey)
+}
+
+function ResourceCheckTab({ api, tenant }: { api: ApiClient; tenant: string }) {
   const [entityType, setEntityType] = useState('')
   const [entityId, setEntityId] = useState('')
   const [permission, setPermission] = useState('')
@@ -1177,28 +1607,84 @@ function ResourceCheckTab({ api }: { api: ApiClient }) {
   const [subjectRelation, setSubjectRelation] = useState('')
   const [snapToken, setSnapToken] = useState('')
   const [result, setResult] = useState<CheckResult | null>(null)
+  const [resultSubject, setResultSubject] = useState<{ type: string; id: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const [validated, setValidated] = useState(false)
+  const [explainTree, setExplainTree] = useState<ExpandTreeNode | null>(null)
+  const [explainError, setExplainError] = useState<Error | null>(null)
+  const { history, pushHistory } = useCheckHistory(tenant)
+
+  function applyHistoryEntry(entry: CheckHistoryEntry) {
+    setEntityType(entry.entityType ?? '')
+    setEntityId(entry.entityId ?? '')
+    setPermission(entry.permission ?? '')
+    setSubjectType(entry.subjectType ?? '')
+    setSubjectId(entry.subjectId ?? '')
+    setSubjectRelation(entry.subjectRelation ?? '')
+    setSnapToken(entry.snapToken ?? '')
+    setValidated(false)
+    setError(null)
+    setResult(null)
+    setResultSubject(null)
+    setExplainTree(null)
+    setExplainError(null)
+  }
 
   async function check() {
     setValidated(true)
     if (!entityType.trim() || !entityId.trim() || !permission.trim() || !subjectType.trim() || !subjectId.trim()) return
 
+    const trimmedEntityType = entityType.trim()
+    const trimmedEntityId = entityId.trim()
+    const trimmedPermission = permission.trim()
+    const trimmedSubjectType = subjectType.trim()
+    const trimmedSubjectId = subjectId.trim()
+    const trimmedSubjectRelation = subjectRelation.trim()
+    const trimmedSnapToken = snapToken.trim()
+
     setLoading(true)
     setError(null)
     setResult(null)
+    setResultSubject(null)
+    setExplainTree(null)
+    setExplainError(null)
 
     try {
-      setResult(await api.checkPermission({
-        entityType,
-        entityId,
-        permission,
-        subjectType,
-        subjectId,
-        subjectRelation,
-        snapToken: snapToken.trim(),
-      }))
+      const checkResult = await api.checkPermission({
+        entityType: trimmedEntityType,
+        entityId: trimmedEntityId,
+        permission: trimmedPermission,
+        subjectType: trimmedSubjectType,
+        subjectId: trimmedSubjectId,
+        subjectRelation: trimmedSubjectRelation,
+        snapToken: trimmedSnapToken,
+      })
+      setResult(checkResult)
+      setResultSubject({ type: trimmedSubjectType, id: trimmedSubjectId })
+      pushHistory({
+        entityType: trimmedEntityType,
+        entityId: trimmedEntityId,
+        permission: trimmedPermission,
+        subjectType: trimmedSubjectType,
+        subjectId: trimmedSubjectId,
+        subjectRelation: trimmedSubjectRelation,
+        snapToken: trimmedSnapToken,
+        result: checkResult.can,
+        ts: Date.now(),
+      })
+
+      try {
+        const tree = await api.expandPermission({
+          entityType: trimmedEntityType,
+          entityId: trimmedEntityId,
+          permission: trimmedPermission,
+          snapToken: trimmedSnapToken,
+        })
+        setExplainTree(tree)
+      } catch (err: unknown) {
+        setExplainError(err instanceof Error ? err : new Error('unknown error'))
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
@@ -1207,10 +1693,10 @@ function ResourceCheckTab({ api }: { api: ApiClient }) {
   }
 
   return (
-    <Stack>
+    <Stack gap="xl">
+      <PageHeader title="Resource check" description="Check whether a subject has a permission on a specific entity." />
       <ActionCard
         actionLabel="Check Access"
-        description="Check whether a subject has a permission on a specific entity."
         loading={loading}
         onAction={check}
       >
@@ -1223,23 +1709,32 @@ function ResourceCheckTab({ api }: { api: ApiClient }) {
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Relation" value={subjectRelation} onChange={(event) => setSubjectRelation(event.currentTarget.value)} /></Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Snap Token" value={snapToken} onChange={(event) => setSnapToken(event.currentTarget.value)} /></Grid.Col>
         </Grid>
+        {history[0] && (
+          <LastFormHistoryRow
+            label="Your last check: "
+            summary={`your last check: ${formatCheckQueryLine(history[0])}`}
+            onUse={() => applyHistoryEntry(history[0])}
+          >
+            <CheckQueryLineText fields={history[0]} />
+          </LastFormHistoryRow>
+        )}
       </ActionCard>
-      {error && <ApiErrorAlert error={error} />}
-      {result && (
-        <Card withBorder>
-          <Group align="center">
-            <Badge size="md" color={result.can === 'CHECK_RESULT_ALLOWED' ? 'green' : 'red'} variant="light">
-              {result.can === 'CHECK_RESULT_ALLOWED' ? 'Allowed' : 'Denied'}
-            </Badge>
-            <Text size="sm" c="dimmed">checks performed: {result.metadata.check_count}</Text>
-          </Group>
-        </Card>
+      {error && <CheckResult {...checkResultErrorProps(error)} />}
+      {result && resultSubject && (
+        <CheckResultPanel
+          result={result}
+          subjectType={resultSubject.type}
+          subjectId={resultSubject.id}
+          subjectRelation={subjectRelation}
+          explainTree={explainTree}
+          explainError={explainError}
+        />
       )}
     </Stack>
   )
 }
 
-function LookupEntityTab({ api }: { api: ApiClient }) {
+function LookupEntityTab({ api, tenant }: { api: ApiClient; tenant: string }) {
   const [entityType, setEntityType] = useState('')
   const [permission, setPermission] = useState('')
   const [subjectType, setSubjectType] = useState('')
@@ -1253,6 +1748,21 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
   const [validated, setValidated] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const lastQueryRef = useRef<LookupEntityQuery | null>(null)
+  const { history, pushHistory } = useEntityLookupHistory(tenant)
+
+  function applyHistoryEntry(entry: EntityLookupHistoryEntry) {
+    setEntityType(entry.entityType ?? '')
+    setPermission(entry.permission ?? '')
+    setSubjectType(entry.subjectType ?? '')
+    setSubjectId(entry.subjectId ?? '')
+    setSnapToken(entry.snapToken ?? '')
+    setValidated(false)
+    setError(null)
+    setLoaded(false)
+    setEntityIds([])
+    setContinuousToken('')
+    lastQueryRef.current = null
+  }
 
   function normalizedQuery(): LookupEntityQuery {
     return {
@@ -1281,6 +1791,7 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
       setEntityIds(result.entityIds)
       setContinuousToken(result.continuousToken)
       setLoaded(true)
+      pushHistory({ ...query, ts: Date.now() })
     } catch (err: unknown) {
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
@@ -1308,10 +1819,10 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
   }
 
   return (
-    <Stack>
+    <Stack gap="xl">
+      <PageHeader title="Entity lookup" description="Find which entities a subject can access with a given permission." />
       <ActionCard
         actionLabel="Lookup Entities"
-        description="Find which entities a subject can access with a given permission."
         loading={loading}
         onAction={lookup}
       >
@@ -1322,19 +1833,32 @@ function LookupEntityTab({ api }: { api: ApiClient }) {
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject ID" placeholder="user-42" withAsterisk value={subjectId} onChange={(event) => setSubjectId(event.currentTarget.value)} error={req(subjectId, validated)} /></Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Snap Token" value={snapToken} onChange={(event) => setSnapToken(event.currentTarget.value)} /></Grid.Col>
         </Grid>
+        {history[0] && (
+          <LastFormHistoryRow
+            label="Your last entity lookup: "
+            summary={`your last entity lookup: ${formatEntityLookupLine(history[0])}`}
+            onUse={() => applyHistoryEntry(history[0])}
+          >
+            <EntityLookupQueryLineText fields={history[0]} />
+          </LastFormHistoryRow>
+        )}
       </ActionCard>
-      {error && <ApiErrorAlert error={error} />}
-      {loaded && <BadgeListResult countLabel="entities found" values={entityIds} />}
-      {continuousToken && (
-        <Group justify="flex-end">
-          <Button variant="default" onClick={loadMore} loading={loadingMore}>Load more</Button>
-        </Group>
+      {error && <CheckResult {...checkResultErrorProps(error)} />}
+      {loaded && (
+        <LookupListResult
+          values={entityIds}
+          singularNoun="entity"
+          pluralNoun="entities"
+          continuousToken={continuousToken}
+          onLoadMore={loadMore}
+          loadingMore={loadingMore}
+        />
       )}
     </Stack>
   )
 }
 
-function LookupSubjectTab({ api }: { api: ApiClient }) {
+function LookupSubjectTab({ api, tenant }: { api: ApiClient; tenant: string }) {
   const [entityType, setEntityType] = useState('')
   const [entityId, setEntityId] = useState('')
   const [permission, setPermission] = useState('')
@@ -1349,6 +1873,22 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
   const [validated, setValidated] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const lastQueryRef = useRef<LookupSubjectQuery | null>(null)
+  const { history, pushHistory } = useSubjectLookupHistory(tenant)
+
+  function applyHistoryEntry(entry: SubjectLookupHistoryEntry) {
+    setEntityType(entry.entityType ?? '')
+    setEntityId(entry.entityId ?? '')
+    setPermission(entry.permission ?? '')
+    setSubjectType(entry.subjectType ?? '')
+    setSubjectRelation(entry.subjectRelation ?? '')
+    setSnapToken(entry.snapToken ?? '')
+    setValidated(false)
+    setError(null)
+    setLoaded(false)
+    setSubjectIds([])
+    setContinuousToken('')
+    lastQueryRef.current = null
+  }
 
   function normalizedQuery(): LookupSubjectQuery {
     return {
@@ -1378,6 +1918,15 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
       setSubjectIds(result.subjectIds)
       setContinuousToken(result.continuousToken)
       setLoaded(true)
+      pushHistory({
+        entityType: query.entityType,
+        entityId: query.entityId,
+        permission: query.permission,
+        subjectType: query.subjectType,
+        subjectRelation: query.subjectRelation ?? '',
+        snapToken: query.snapToken,
+        ts: Date.now(),
+      })
     } catch (err: unknown) {
       setError(err instanceof Error ? err : new Error('unknown error'))
     } finally {
@@ -1405,10 +1954,10 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
   }
 
   return (
-    <Stack>
+    <Stack gap="xl">
+      <PageHeader title="Subject lookup" description="Find which subjects have a given permission on an entity." />
       <ActionCard
         actionLabel="Lookup Subjects"
-        description="Find which subjects have a given permission on an entity."
         loading={loading}
         onAction={lookup}
       >
@@ -1420,87 +1969,48 @@ function LookupSubjectTab({ api }: { api: ApiClient }) {
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Subject Relation" value={subjectRelation} onChange={(event) => setSubjectRelation(event.currentTarget.value)} /></Grid.Col>
           <Grid.Col span={{ base: 12, sm: 6, lg: 4 }}><TextInput label="Snap Token" value={snapToken} onChange={(event) => setSnapToken(event.currentTarget.value)} /></Grid.Col>
         </Grid>
+        {history[0] && (
+          <LastFormHistoryRow
+            label="Your last subject lookup: "
+            summary={`your last subject lookup: ${formatSubjectLookupLine(history[0])}`}
+            onUse={() => applyHistoryEntry(history[0])}
+          >
+            <SubjectLookupQueryLineText fields={history[0]} />
+          </LastFormHistoryRow>
+        )}
       </ActionCard>
-      {error && <ApiErrorAlert error={error} />}
-      {loaded && <BadgeListResult countLabel="subjects found" values={subjectIds} />}
-      {continuousToken && (
-        <Group justify="flex-end">
-          <Button variant="default" onClick={loadMore} loading={loadingMore}>Load more</Button>
-        </Group>
+      {error && <CheckResult {...checkResultErrorProps(error)} />}
+      {loaded && (
+        <LookupListResult
+          values={subjectIds}
+          singularNoun="subject"
+          pluralNoun="subjects"
+          continuousToken={continuousToken}
+          onLoadMore={loadMore}
+          loadingMore={loadingMore}
+        />
       )}
     </Stack>
   )
 }
 
-function CheckScreen({ api }: { api: ApiClient }) {
+function CheckScreen({ api, mode, tenant }: { api: ApiClient; mode: CheckMode; tenant: string }) {
   return (
-    <Box maw={1040} px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
-      <Tabs defaultValue="check">
-        <Tabs.List>
-          <Tabs.Tab value="check">Resource Check</Tabs.Tab>
-          <Tabs.Tab value="lookup">Entity Lookup</Tabs.Tab>
-          <Tabs.Tab value="subject">Subject Lookup</Tabs.Tab>
-        </Tabs.List>
-        <Tabs.Panel value="check" pt="xl">
-          <ResourceCheckTab api={api} />
-        </Tabs.Panel>
-        <Tabs.Panel value="lookup" pt="xl">
-          <LookupEntityTab api={api} />
-        </Tabs.Panel>
-        <Tabs.Panel value="subject" pt="xl">
-          <LookupSubjectTab api={api} />
-        </Tabs.Panel>
-      </Tabs>
-    </Box>
+    <PageShell>
+      {mode === 'check' && <ResourceCheckTab api={api} tenant={tenant} />}
+      {mode === 'lookup' && <LookupEntityTab api={api} tenant={tenant} />}
+      {mode === 'subject' && <LookupSubjectTab api={api} tenant={tenant} />}
+    </PageShell>
   )
 }
 
-function ApiErrorAlert({ error, m }: { error: Error; m?: string }) {
-  if (error instanceof ApiError) {
-    const bodyJson = error.body === undefined ? null : JSON.stringify(error.body, null, 2)
-
-    return (
-      <Alert
-        color="red"
-        variant="outline"
-        title={<Text inherit ff="monospace">{error.status} {error.path}</Text>}
-        styles={{
-          label: {
-            overflow: 'visible',
-            textOverflow: 'unset',
-            whiteSpace: 'normal',
-            overflowWrap: 'anywhere',
-          },
-        }}
-        m={m}
-      >
-        {bodyJson ? (
-          <Text
-            component="pre"
-            size="sm"
-            ff="monospace"
-            c="dimmed"
-            style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              overflowWrap: 'anywhere',
-            }}
-          >
-            {bodyJson}
-          </Text>
-        ) : (
-          <Text size="sm" c="dimmed">{error.message}</Text>
-        )}
-      </Alert>
-    )
-  }
-
-  return <Alert color="red" variant="outline" m={m}>{error.message}</Alert>
-}
-
 export function App() {
-  const [page, setPage] = useState<Page>(() => parsePage(new URLSearchParams(window.location.search).get('page')))
+  const initialLocation = readLocationState()
+  const [page, setPage] = useState<Page>(() => initialLocation.page)
+  const [checkMode, setCheckMode] = useState<CheckMode>(() => initialLocation.checkMode)
+  const [checkNavOpened, setCheckNavOpened] = useState(() => initialLocation.page === 'check')
   const [schemaScreenKey, setSchemaScreenKey] = useState(0)
+  const [checkScreenKey, setCheckScreenKey] = useState(0)
   const [mobileNavbarOpened, setMobileNavbarOpened] = useState(false)
   const [authEnabled, setAuthEnabled] = useState(false)
   const [authed, setAuthed] = useState<boolean | null>(null)
@@ -1543,7 +2053,9 @@ export function App() {
 
   useEffect(() => {
     function onPopState() {
-      setPage(parsePage(new URLSearchParams(window.location.search).get('page')))
+      const { page: nextPage, checkMode: nextCheckMode } = readLocationState()
+      setPage(nextPage)
+      setCheckMode(nextCheckMode)
     }
 
     window.addEventListener('popstate', onPopState)
@@ -1553,7 +2065,28 @@ export function App() {
   function navigate(nextPage: Page) {
     setPage(nextPage)
     setMobileNavbarOpened(false)
-    window.history.pushState(null, '', nextPage === 'schema' ? '/' : `/?page=${nextPage}`)
+    if (nextPage === 'schema') {
+      window.history.pushState(null, '', '/')
+      return
+    }
+    if (nextPage === 'check') {
+      setCheckMode('check')
+      window.history.pushState(null, '', checkAccessUrl('check'))
+      return
+    }
+    window.history.pushState(null, '', `/?page=${nextPage}`)
+  }
+
+  function navigateToCheck(mode: CheckMode) {
+    setPage('check')
+    setCheckNavOpened(true)
+    setMobileNavbarOpened(false)
+    if (page === 'check' && checkMode === mode) {
+      setCheckScreenKey((current) => current + 1)
+    } else {
+      setCheckMode(mode)
+    }
+    window.history.pushState(null, '', checkAccessUrl(mode))
   }
 
   function navigateHome() {
@@ -1574,70 +2107,89 @@ export function App() {
       padding={0}
     >
       <AppShell.Header hiddenFrom="sm">
-        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
-          <Group gap="sm" wrap="nowrap">
-            <Burger opened={mobileNavbarOpened} onClick={() => setMobileNavbarOpened((current) => !current)} size="sm" aria-label="Toggle navigation" />
-            <UnstyledButton onClick={navigateHome}>
-              <Text fw={600}>Permify UI</Text>
-            </UnstyledButton>
-          </Group>
-          <ThemeToggle />
+        <Group h="100%" px="md" gap="sm" wrap="nowrap">
+          <Burger opened={mobileNavbarOpened} onClick={() => setMobileNavbarOpened((current) => !current)} size="sm" aria-label="Toggle navigation" />
+          <UnstyledButton onClick={navigateHome}>
+            <Text fw={500}>Permify UI</Text>
+          </UnstyledButton>
         </Group>
       </AppShell.Header>
 
       <AppShell.Navbar>
         <AppShell.Section px="lg" pt="xl" pb="md" mb="md">
-          <Group justify="space-between" wrap="nowrap">
-            <UnstyledButton onClick={navigateHome}>
-              <Title order={4} fw={600}>Permify UI</Title>
-            </UnstyledButton>
-            <ThemeToggle />
-          </Group>
+          <UnstyledButton onClick={navigateHome}>
+            <Title order={4}>Permify UI</Title>
+          </UnstyledButton>
         </AppShell.Section>
 
         <AppShell.Section grow component="nav">
-          {([
-            ['schema', 'Schemas', IconBraces],
-            ['relations', 'Relations', IconArrowsExchange],
-            ['check', 'Check access', IconLockCheck],
-          ] as const).map(([itemPage, label, Icon]) => (
-            <NavLink
-              key={itemPage}
-              component="a"
-              href="#"
-              active={page === itemPage}
-              leftSection={<Icon size={18} />}
-              label={label}
-              onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
-                event.preventDefault()
-                navigate(itemPage)
-              }}
-            />
-          ))}
+          <NavLink
+            component="a"
+            href="#"
+            active={page === 'schema'}
+            leftSection={<IconBraces size={16} />}
+            label="Schemas"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              event.preventDefault()
+              navigate('schema')
+            }}
+          />
+          <NavLink
+            component="a"
+            href="#"
+            active={page === 'relations'}
+            leftSection={<IconArrowsExchange size={16} />}
+            label="Relations"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              event.preventDefault()
+              navigate('relations')
+            }}
+          />
+          <NavLink
+            component="a"
+            href="#"
+            label="Check access"
+            leftSection={<IconLockCheck size={16} />}
+            opened={checkNavOpened}
+            onChange={setCheckNavOpened}
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => event.preventDefault()}
+            styles={{
+              children: {
+                marginInlineStart: 'calc(var(--mantine-spacing-lg) + 8px)',
+                paddingInlineStart: 0,
+                borderInlineStart: '1px solid var(--mantine-color-default-border)',
+              },
+            }}
+          >
+            {CHECK_MODES.map(({ mode, label }) => (
+              <NavLink
+                key={mode}
+                component="a"
+                href="#"
+                label={label}
+                active={page === 'check' && checkMode === mode}
+                styles={{
+                  root: {
+                    paddingLeft: 'var(--mantine-spacing-sm)',
+                    paddingRight: 'var(--mantine-spacing-sm)',
+                  },
+                }}
+                onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+                  event.preventDefault()
+                  navigateToCheck(mode)
+                }}
+              />
+            ))}
+          </NavLink>
         </AppShell.Section>
 
-        {authEnabled && (
-          <AppShell.Section px="lg" py="md" mt="md">
-            <Group gap="xs" wrap="nowrap">
-              <Text size="xs" c="dimmed" truncate="end" flex={1}>
-                {email}
-              </Text>
-              <Tooltip label="Logout" position="top">
-                <Box component="form" action="/auth/logout" method="post">
-                  <ActionIcon type="submit" variant="subtle" color="gray" size="sm" aria-label="Logout">
-                    <IconLogout size={16} />
-                  </ActionIcon>
-                </Box>
-              </Tooltip>
-            </Group>
-          </AppShell.Section>
-        )}
+        <NavbarFooter authEnabled={authEnabled} email={email} />
       </AppShell.Navbar>
 
       <AppShell.Main>
         {page === 'schema' && <SchemaScreen key={schemaScreenKey} api={api} />}
         {page === 'relations' && <TuplesScreen api={api} />}
-        {page === 'check' && <CheckScreen api={api} />}
+        {page === 'check' && <CheckScreen key={`${checkMode}-${checkScreenKey}`} api={api} mode={checkMode} tenant={tenant} />}
       </AppShell.Main>
     </AppShell>
   )

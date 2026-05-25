@@ -1,0 +1,147 @@
+.result {
+  padding: 14px 16px;
+  border-radius: var(--mantine-radius-sm);
+  border: 1px solid;
+}
+
+.resultAllowed {
+  composes: result;
+}
+
+.resultAllowed.resultAllowed {
+  background-color: var(--check-result-allowed-bg);
+  border-color: var(--check-result-allowed-border);
+}
+
+.resultDenied {
+  composes: result;
+}
+
+.resultDenied.resultDenied {
+  background-color: var(--check-result-denied-bg);
+  border-color: var(--check-result-denied-border);
+}
+
+.resultError {
+  composes: result;
+}
+
+.resultError.resultError {
+  background-color: var(--check-result-error-bg);
+  border-color: var(--check-result-error-border);
+}
+
+.statusAllowed,
+.statusDenied,
+.statusError {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.statusAllowed svg,
+.statusDenied svg,
+.statusError svg {
+  flex: none;
+  color: currentColor;
+}
+
+.statusAllowed {
+  color: var(--check-result-allowed-status);
+}
+
+.statusDenied {
+  color: var(--check-result-denied-status);
+}
+
+.statusError {
+  color: var(--check-result-error-status);
+}
+
+.trace {
+  margin-top: 11px;
+}
+
+.treeGroup {
+  margin-top: 2px;
+}
+
+.treeChildren {
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 1px solid var(--check-result-trace-path);
+  gap: 3px;
+}
+
+.treeOpLabel {
+  color: var(--check-result-trace-path);
+  line-height: 1.35;
+}
+
+.treeChild + .treeChild {
+  margin-top: 3px;
+}
+
+.pathRowBase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 0;
+  line-height: 1.35;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+  color: var(--check-result-trace-path);
+}
+
+.pathRow {
+  composes: pathRowBase;
+}
+
+.pathRowDimmed {
+  composes: pathRowBase;
+  color: var(--check-result-trace-path-dimmed);
+}
+
+.pathRows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pathText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pathSep {
+  opacity: 0.72;
+}
+
+.pathRowDot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pathRowDot::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.traceDetail {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--check-result-trace-path);
+  padding: 2.5px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}

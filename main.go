@@ -559,10 +559,21 @@ func (s *Server) routes() http.Handler {
 			p = "index.html"
 		}
 
+		if p == "index.html" {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		} else if strings.HasPrefix(p, "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+
 		f, err := sub.Open(p)
 		if err == nil {
 			f.Close()
 			static.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(p, "assets/") {
+			http.NotFound(w, r)
 			return
 		}
 
