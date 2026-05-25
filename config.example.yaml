@@ -16,6 +16,8 @@ api_access:
       path: /v1/tenants/{tenant}/permissions/lookup-entity
     - method: POST
       path: /v1/tenants/{tenant}/permissions/lookup-subject
+    - method: POST
+      path: /v1/tenants/{tenant}/permissions/expand
 
 auth:
   enabled: false
